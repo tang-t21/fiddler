@@ -3,10 +3,13 @@ import os
 
 # import utils
 import random
-from mixtral import FiddlerMixtral
 import torch
 import time
-import numpy as np
+import sys
+import transformers
+
+sys.path.append("../src")
+from mixtral import FiddlerMixtral
 
 
 def test_pp(token_num, batch_size, model):
@@ -31,9 +34,9 @@ def test_pp(token_num, batch_size, model):
             .unsqueeze(0)
             .view(-1, input_ids.shape[-1])
         )
-        one_round_time = time.time()
-        logits = model.mixtral_forward(input_ids, position_ids)
-        print(f"one_round_time: {time.time()-one_round_time}")
+        # one_round_time = time.time()
+        logits = model.mixtral_forward(input_ids, position_ids, False)
+        # print(f"one_round_time: {time.time()-one_round_time}")
         n_processed += n_tokens
 
 
@@ -51,7 +54,7 @@ def test_tg(token_num, model):
             .unsqueeze(0)
             .view(-1, input_ids.shape[-1])
         )
-        logits = model.mixtral_forward(input_ids, position_ids)
+        logits = model.mixtral_forward(input_ids, position_ids, True)
 
 
 if __name__ == "__main__":
@@ -91,39 +94,34 @@ if __name__ == "__main__":
         "--token_num", type=int, default=128, help="Number of tokens to process."
     )
     parser.add_argument("--repeat", type=int, default=1, help="Repeat times.")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size.")
 
     args = parser.parse_args()
     model = FiddlerMixtral(args)
-    print((len(args.input.split()) + args.n_token))
-    model.reset_expert_loc((len(args.input.split()) + args.n_token))
-    num_threads = [2 * i + 8 for i in range(9)]
+
+    torch.set_num_threads(args.torch_threads)
+    if args.token_num > 0:
+        test_pp(args.token_num, args.batch_size, model)
+        test_tg(1, model)
+    pp_time = 0
+    tg_time = 0
     for i in range(args.repeat):
-        prefill_time, decode_time, hit_rate = model.generate(
-            texts=[args.input], output_token=args.n_token
+        model.past_key_value = transformers.cache_utils.DynamicCache.from_legacy_cache()
+        model.past_key_values_length = 0
+        start_time = time.time()
+        test_pp(args.token_num, args.batch_size, model)
+        pp_time += time.time() - start_time
+
+    for i in range(args.repeat):
+        model.past_key_value = transformers.cache_utils.DynamicCache.from_legacy_cache()
+        model.past_key_values_length = 0
+        start_time = time.time()
+        test_tg(args.n_token, model)
+        tg_time += time.time() - start_time
+        print("time:", time.time() - start_time)
+
+    with open("llama-bench-time.txt", "a") as f:
+        f.write(
+            f"batch_size: {args.batch_size}, pp{args.token_num}: {args.token_num*args.repeat/pp_time}, tg{args.n_token}: {args.repeat*args.n_token/tg_time}\n"
         )
-        # prefill_time, decode_time, hit_rate = model.generate(
-        #     texts=[args.input], output_token=args.n_token
-        # )
-        # print(model.cpu_token_num)
-        print(
-            f"prefill_time: {prefill_time}, decode_time: {decode_time}, hit_rate: {hit_rate}"
-        )
-    # print("         | Average value | Variation | Portion")
-    # print(
-    #     f"OneToken | {sum(model.one_token_time)/len(model.one_token_time):.2f} | {np.var(model.one_token_time):.2f}"
-    # )
-    # print(
-    #     f"CPUExpert | {sum(model.cpu_expert_time)/len(model.cpu_expert_time)*10**6:.2f} | {np.var(model.cpu_expert_time)*10**6:.2f} | {sum(model.cpu_expert_time)/(decode_time+prefill_time):.2f}"
-    # )
-    # print(
-    #     f"GPUExpert | {sum(model.gpu_expert_time)/len(model.gpu_expert_time)*10**6:.2f} | {np.var(model.gpu_expert_time)*10**6:.2f} | {sum(model.gpu_expert_time)/(decode_time+prefill_time):.2f}"
-    # )
-    # print(
-    #     f"Attention | {sum(model.attention_time)/len(model.attention_time)*10**6:.2f} | {np.var(model.attention_time)*10**6:.2f} | {sum(model.attention_time)/(decode_time+prefill_time):.2f}"
-    # )
-    # print(
-    #     f"Selection | {sum(model.selection_time)/len(model.selection_time)*10**6:.2f} | {np.var(model.selection_time)*10**6:.2f} | {sum(model.selection_time)/(decode_time+prefill_time):.2f}"
-    # )
-    # print(
-    #     f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time)*10**6:.2f} | {np.var(model.search_config_time)*10**6:.2f} | {sum(model.search_config_time)/(decode_time+prefill_time):.2f}"
-    # )
+    # model.test_cpu_expert()

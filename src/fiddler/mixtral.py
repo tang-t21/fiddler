@@ -1,4 +1,5 @@
 import copy
+import concurrent.futures
 import threading
 import time
 
@@ -8,8 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 import transformers
-from bfloat16_expert import cpu_expert
-import flashinfer
+# from bfloat16_expert import cpu_expert
 
 
 class FiddlerMixtral:
@@ -31,8 +31,10 @@ class FiddlerMixtral:
         ).to(self.dev)
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(args.model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
+
         self.past_key_value = transformers.cache_utils.DynamicCache.from_legacy_cache()
         self.past_key_values_length = 0
+
         self.cpu_offload = args.cpu_offload
 
         self.n_layer = len(self.model.layers)
@@ -41,14 +43,11 @@ class FiddlerMixtral:
         self.cpu_layer_num = []
         self.outliner_nums = []
         self.outliners = []
-        self.cpu_experts = [[] for i in range(self.n_layer)]
+        # self.cpu_experts = [[] for i in range(self.n_layer)]
         self.beam_width = args.beam_width
 
         self.torch_threads = args.torch_threads
         self.cpp_threads = args.cpp_threads
-        # TODO: find this value based on device config
-        self.latency_cpu = 7
-        self.latency_gpu = 40
 
         self.cpu_token_num = 0
         self.cnt_expert_hit = 0
@@ -59,12 +58,32 @@ class FiddlerMixtral:
         self.gpu_expert_time = []
         self.search_config_time = []
         self.one_token_time = []
+        self.expert_pattern = []
+        self.expert_counts = np.zeros(self.n_layer * self.n_expert, dtype=int)
+
+        # self.init_cpu_expert()
+        self.gpu_latency = np.mean(self.expert_gpu(n_expert=1, batch_size=4)) * 10**3
+        self.copy_latency = np.mean(self.weight_copy()) * 10**3
+        self.cpu_latency = np.mean(self.expert_cpu(1, 1)) * 10**3
+        # self.gpu_latency = 0.46
+        # self.copy_latency = 14.14
+        # self.cpu_latency = 2.81
+
+        print(f"CPU latency: {self.cpu_latency:.2f} ms")
+        print(f"Copy latency: {self.copy_latency:.2f} ms")
+        print(f"GPU latency: {self.gpu_latency:.2f} ms")
+        # self.cpu_latency = 7
+        # self.copy_latency = 40
+        # self.gpu_latency = 0.6
+        # self.init_attention()
 
         self.bring_non_expert_to_gpu()
-
+        self.non_expert_alloc_mem = torch.cuda.memory_allocated(self.dev)
+        print(f"Non-expert memory: {self.non_expert_alloc_mem}")
+        self.default_max_len = 128
         # 0: CPU, 1: GPU
         self.expert_loc = np.zeros((self.n_layer, self.n_expert), dtype=int)
-        n_expert_on_gpu = self.calc_n_expert_on_gpu()
+        n_expert_on_gpu = self.calc_n_expert_on_gpu(self.default_max_len)
         print(
             f"Number of experts on GPU: {n_expert_on_gpu}/{self.n_layer * self.n_expert}"
         )
@@ -73,11 +92,129 @@ class FiddlerMixtral:
         # print(self.expert_loc)
 
         self.bring_expert_to_gpu()
-
-        self.init_cpu_expert()
+        self.cpu_experts = [[] for i in range(self.n_layer)]
+        # self.init_cpu_expert()
         self.pin_expert_in_cpu()
-
+        total_mem = torch.cuda.get_device_properties(self.dev).total_memory
+        print(f"Total memory: {total_mem//1024**3} GB")
+        print(
+            f"Total memory allocated: {torch.cuda.memory_allocated(self.dev)//1024**3} GB"
+        )
+        print("Free GPU memory:", torch.cuda.memory_reserved(self.dev) // 1024**3, "GB")
         print("Model is ready.")
+
+    def set_cpu_cost_model(self):
+        batch_sizes = [1] + [4 * i for i in range(1, 2**4 + 1)]
+        latency = []
+        for batch_size in batch_sizes:
+            latency.append(
+                np.mean(self.expert_cpu(n_expert=1, batch_size=batch_size)) * 10**3
+            )
+        # using polynomial regression to fit the latency
+        latency = np.array(latency)
+        x = np.array(batch_sizes)
+        X = np.vstack([x, np.ones(len(x))]).T
+
+        # Calculate the least-squares solution
+        a, b = np.linalg.lstsq(X, latency, rcond=None)[0]
+        return a, b
+
+    # def cpu_latency(self, batch_size):
+    #     if batch_size == 0:
+    #         return 0
+    #     return self.cpu_latency_a * batch_size + self.cpu_latency_b
+
+    # def set_latency():
+    def weight_copy(self):
+        """Time to copy weights of an expert"""
+        torch.set_num_threads(self.torch_threads)
+        ret_time = []
+
+        expert_placeholder = copy.deepcopy(
+            self.model.layers[0].block_sparse_moe.experts[0]
+        ).to(self.dev)
+        for i in range(32):
+            self.model.layers[i].block_sparse_moe.experts[0].to("cpu")
+            for name in ["w1", "w2", "w3"]:
+                w = getattr(self.model.layers[i].block_sparse_moe.experts[0], name)
+                src_weight_data_tensor = w.weight.data
+                pinned = src_weight_data_tensor.pin_memory()
+                w.weight.data = pinned
+            torch.cuda.synchronize()
+            tick = time.time()
+            # expert_placeholder.load_state_dict(
+            #     model.model.layers[i].block_sparse_moe.experts[0].state_dict()
+            # )
+            for name in ["w1", "w2", "w3"]:
+                dst = getattr(expert_placeholder, name).weight.data
+                src = getattr(
+                    self.model.layers[i].block_sparse_moe.experts[0], name
+                ).weight.data
+                dst.copy_(src)
+            torch.cuda.synchronize()
+            ret_time.append(time.time() - tick)
+            self.model.layers[i].block_sparse_moe.experts[0].to("cpu")
+        return np.array(ret_time)
+
+    def expert_gpu(self, n_expert=1, batch_size=1):
+        """Time to execute an expert at GPU"""
+        torch.set_num_threads(self.torch_threads)
+        ret_time = []
+
+        # warm up
+        self.model.layers[0].block_sparse_moe.experts[7].to(self.dev)
+        inps = torch.randn((batch_size, 4096), dtype=self.dtype, device=self.dev)
+        weights = torch.ones((batch_size, 1), dtype=self.dtype, device=self.dev)
+        inps = self.model.layers[0].block_sparse_moe.experts[7](inps, weights)
+        self.model.layers[0].block_sparse_moe.experts[7].to("cpu")
+        del inps, weights
+        torch.cuda.synchronize()
+
+        for i in range(32):
+            for j in range(n_expert):
+                self.model.layers[i].block_sparse_moe.experts[j].to(self.dev)
+                inps = torch.randn(
+                    (batch_size, 4096), dtype=self.dtype, device=self.dev
+                )
+                weights = torch.randn(
+                    (batch_size, 1), dtype=self.dtype, device=self.dev
+                )
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                tick = time.time()
+                inps = self.model.layers[i].block_sparse_moe.experts[j](inps, weights)
+                torch.cuda.synchronize()
+                ret_time.append(time.time() - tick)
+                self.model.layers[i].block_sparse_moe.experts[j].to("cpu")
+                del inps, weights
+        return np.array(ret_time)
+
+    def expert_cpu(self, n_expert=1, batch_size=1, multithreading=False):
+        """Time to execute an expert at CPU"""
+        torch.set_num_threads(self.torch_threads)
+        ret_time = []
+        # warm up
+        self.model.layers[0].block_sparse_moe.experts[7].to("cpu")
+        inps = torch.randn((batch_size, 4096), dtype=self.dtype, device="cpu")
+        weights = torch.ones((batch_size, 1), dtype=self.dtype, device="cpu")
+        torch.cuda.synchronize()
+        tick = time.time()
+        inps = self.run_expert_at_cpu(0, 7, inps, weights)
+        del inps, weights
+        torch.cuda.synchronize()
+
+        for i in range(32):
+            for j in range(n_expert):
+                self.model.layers[i].block_sparse_moe.experts[j].to("cpu")
+                inps = torch.randn((batch_size, 4096), dtype=self.dtype, device="cpu")
+                weights = torch.randn((batch_size, 1), dtype=self.dtype, device="cpu")
+                torch.cuda.synchronize()
+                tick = time.time()
+                inps = self.run_expert_at_cpu(i, j, inps, weights)
+                torch.cuda.synchronize()
+                ret_time.append(time.time() - tick)
+                del inps, weights
+        return np.array(ret_time)
 
     def test_cpu_expert(self):
         """Test CPU expert"""
@@ -142,16 +279,16 @@ class FiddlerMixtral:
         # delta = torch.abs(out1 - out2)
         # print(f"Max delta: {delta.max()}")
 
-    def init_cpu_expert(self):
-        """Initialize CPU expert"""
-        for i in range(self.n_layer):
-            for j in range(self.n_expert):
-                expert = cpu_expert(
-                    self.model.layers[i].block_sparse_moe.experts[j].w1.weight,
-                    self.model.layers[i].block_sparse_moe.experts[j].w2.weight,
-                    self.model.layers[i].block_sparse_moe.experts[j].w3.weight,
-                )
-                self.cpu_experts[i].append(expert)
+    # def init_cpu_expert(self):
+    #     """Initialize CPU expert"""
+    #     for i in range(self.n_layer):
+    #         for j in range(self.n_expert):
+    #             expert = cpu_expert(
+    #                 self.model.layers[i].block_sparse_moe.experts[j].w1.weight,
+    #                 self.model.layers[i].block_sparse_moe.experts[j].w2.weight,
+    #                 self.model.layers[i].block_sparse_moe.experts[j].w3.weight,
+    #             )
+    #             self.cpu_experts[i].append(expert)
 
     def bring_non_expert_to_gpu(self):
         """Bring non-expert layers to GPU"""
@@ -164,6 +301,19 @@ class FiddlerMixtral:
             self.model.layers[i].block_sparse_moe.gate.to(self.dev)
             self.model.layers[i].post_attention_layernorm.to(self.dev)
             # only model.layers[i].block_sparse_moe.experts is on CPU
+    
+    def calc_non_expert_params(self):
+        """Calculate the number of parameters of non-expert layers"""
+        n_param = 0
+        n_param+=sum(p.numel() for p in self.model.embed_tokens.parameters())
+        n_param+=sum(p.numel() for p in self.model.norm.parameters())
+        n_param+=sum(p.numel() for p in self.lm_head.parameters())
+        for i in range(len(self.model.layers)):
+            n_param+=sum(p.numel() for p in self.model.layers[i].self_attn.parameters())
+            n_param+=sum(p.numel() for p in self.model.layers[i].input_layernorm.parameters())
+            n_param+=sum(p.numel() for p in self.model.layers[i].block_sparse_moe.gate.parameters())
+            n_param+=sum(p.numel() for p in self.model.layers[i].post_attention_layernorm.parameters())
+        self.n_non_expert_params = n_param
 
     def set_expert_loc(self, n_expert_on_gpu, popular_experts=None):
         """Set the location of experts"""
@@ -439,6 +589,16 @@ class FiddlerMixtral:
             for j in range(self.n_expert):
                 if self.is_expert_in_gpu(i, j):
                     self.model.layers[i].block_sparse_moe.experts[j].to(self.dev)
+                else:
+                    self.model.layers[i].block_sparse_moe.experts[j].to("cpu")
+    
+    def reset_expert_loc(self,max_len):
+        n_expert_on_gpu = self.calc_n_expert_on_gpu(max_len)
+        print(f'Number of experts on GPU:{n_expert_on_gpu}/{self.n_layer*self.n_expert}')
+        self.expert_loc = np.zeros((self.n_layer, self.n_expert), dtype=int)
+        self.set_expert_loc(n_expert_on_gpu)
+        self.clear_cache()
+        self.bring_expert_to_gpu()
 
     def pin_expert_in_cpu(self):
         for i in range(self.n_layer):
@@ -456,17 +616,21 @@ class FiddlerMixtral:
         """Determine if the expert is in GPU"""
         return self.expert_loc[i_layer, i_expert] == 1
 
-    def calc_n_expert_on_gpu(self):
+
+    def calc_n_expert_on_gpu(self, max_len):
         """Get the number of experts that we can put on GPU"""
         # get the number of parameters of one expert
+        self.default_max_len = max_len
         n_param = sum(
             p.numel()
             for p in self.model.layers[0].block_sparse_moe.experts[0].parameters()
         )
         # get the amount of free memory on GPU
         total_mem = torch.cuda.get_device_properties(self.dev).total_memory
-        free_mem = total_mem * 0.95 - torch.cuda.memory_allocated(self.dev)
+        kv_cache_mem = self.n_layer * max_len * self.model.config.hidden_size * 2 * 2
+        free_mem = total_mem*0.98 - self.non_expert_alloc_mem - kv_cache_mem
         return int((free_mem) // (n_param * 2))
+    
 
     def initial_beam_tensor(self, input_tensor):
         # transfer tensor of shape (batch_size*beam_width, seq_len, beam_width) to (batch_size*beam_width, 1) properly
@@ -481,10 +645,19 @@ class FiddlerMixtral:
         output_tensor = input_tensor[row_idx].view(-1, 1)
         return output_tensor
 
-    def generate(self, texts=None, output_token=20, input_token=None, input_ids=None):
-        torch.set_num_threads(self.torch_threads)
+    def clear_cache(self):
         self.past_key_value = transformers.cache_utils.DynamicCache.from_legacy_cache()
         self.past_key_values_length = 0
+
+    def generate(
+        self,
+        texts=None,
+        output_token=20,
+        input_token=None,
+        input_ids=None,
+        beam_width=1,
+    ):
+        torch.set_num_threads(self.torch_threads)
         self.cpu_token_num = 0
         self.cnt_expert_hit = 0
         self.cnt_expert_all = 0
@@ -497,55 +670,74 @@ class FiddlerMixtral:
         self.outliner_nums = []
         self.cpu_layer_num = []
         self.outliners = []
+        self.expert_pattern = []
+        self.expert_counts = [[0 for _ in range(self.n_expert)] for _ in range(self.n_layer)]
+        self.clear_cache()
         # input_ids.shape: (batch_size, seq_len)
         # position_ids.shape: (1,seq_len)
+        self.beam_width = beam_width
         input_ids, position_ids = self.tokenize(texts)
 
         if input_token is not None:
             input_ids = input_ids[:, :input_token]
             position_ids = position_ids[:, :input_token]
 
-        tick = time.time()
         is_decode = False
         prefill_time, decode_time = 0, 0
         decode_strings = ["" for _ in range(input_ids.shape[0])]
         search_start = False
         probs = torch.full((input_ids.shape[0], 1), 1.0)
-
+        tick = time.time()
         for i_token in range(output_token):
             start_time = time.time()
             if is_decode:
                 for i in range(input_ids.shape[0]):
                     decode_strings[i] += " " + self.tokenizer.decode(input_ids[i, :])
-                    print("--------------------")
-                    print(f"beam[{i}]: {decode_strings[i]}")
+                    # print("--------------------")
+                    # print(f"beam[{i}]: {decode_strings[i]}")
 
-            logits = self.mixtral_forward(input_ids, position_ids, is_decode)
+            logits = self.mixtral_forward(
+                input_ids,
+                position_ids,
+                is_decode,
+            )
 
             logits = logits.to("cpu")
             # logits.shape: (batch_size, seq_len, vocab_size)
 
             # normalize logits
             logits = F.softmax(logits, dim=-1)
-            # print(logits)
-            # greedy search:
-            # output = torch.argmax(logits, dim=-1)
-
-            # beam_search:
             self.past_key_values_length += logits.shape[1]
-            if search_start:
-                new_probs, output = torch.topk(logits, 1, dim=-1)
-                new_probs = new_probs[:, -1].flatten().view(-1, 1)
+            # greedy search:
+            if self.beam_width == 1:
+                output = torch.argmax(logits, dim=-1)
+                input_ids = output[:, -1].unsqueeze(0).view(-1, 1).to(self.dev)
             else:
-                new_probs, output = torch.topk(logits, self.beam_width, dim=-1)
-                new_probs = self.initial_beam_tensor(new_probs)
-                output = self.initial_beam_tensor(output)
-                search_start = True
-            # new_probs = new_probs / new_probs.sum(dim=-1, keepdim=True)
-            probs = probs * new_probs
-            probs = probs / probs.sum(dim=-1, keepdim=True)
+                # beam_search:
 
-            input_ids = output[:, -1].flatten().view(-1, 1).to(self.dev)
+                if search_start:
+                    new_probs, output = torch.topk(logits, self.beam_width, dim=-1)
+                    new_probs = new_probs[:, -1].flatten().view(-1, 1)
+                    for i in range(probs.shape[0]):
+                        for j in range(probs.shape[0]):
+                            new_probs[i * self.beam_width + j] *= probs[i]
+                    topk_probs, topk_idx = torch.topk(new_probs, self.beam_width, dim=0)
+                    probs = topk_probs
+                    output = output.flatten().view(-1, 1)[
+                        topk_idx.view(-1, self.beam_width).flatten()
+                    ]
+                    # print(output)
+                    # exit(0)
+                    input_ids = output.to(self.dev)
+                else:
+                    new_probs, output = torch.topk(logits, self.beam_width, dim=-1)
+                    new_probs = self.initial_beam_tensor(new_probs)
+                    output = self.initial_beam_tensor(output)
+                    search_start = True
+                    probs = probs * new_probs
+                    input_ids = output[:, -1].flatten().view(-1, 1).to(self.dev)
+                # new_probs = new_probs / new_probs.sum(dim=-1, keepdim=True)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
             # input_ids.shape: (batch_size, seq_len=1)
 
             position_ids = (
@@ -567,12 +759,18 @@ class FiddlerMixtral:
             self.one_token_time.append((time.time() - start_time) * 10**3)
         torch.cuda.synchronize()
         decode_time = time.time() - tick
-        probs = probs.view(-1, self.beam_width)
-        max_ids = torch.argmax(probs, dim=-1)
-        for i in range(max_ids.shape[0]):
-            print("--------------------")
-            print(f"Input: {texts[i]}")
-            print(f"Output: {decode_strings[i * self.beam_width + max_ids[i]]}")
+        # if self.beam_width == 1:
+        #     for i in range(input_ids.shape[0]):
+        # print("--------------------")
+        # print(f"Input: {texts[i]}")
+        # print(f"Output: {decode_strings[i]}")
+        # else:
+        #     probs = probs.view(-1, self.beam_width)
+        #     max_ids = torch.argmax(probs, dim=-1)
+        # for i in range(max_ids.shape[0]):
+        # print("--------------------")
+        # print(f"Input: {texts[i]}")
+        # print(f"Output: {decode_strings[i * self.beam_width + max_ids[i]]}")
 
         return (
             prefill_time,
@@ -600,19 +798,28 @@ class FiddlerMixtral:
         return input_ids, position_ids
 
     @torch.no_grad()
-    def mixtral_forward(self, input_ids, position_ids, is_decode):
+    def mixtral_forward(
+        self,
+        input_ids,
+        position_ids,
+        is_decode,
+    ):
         hidden_dim = self.model.config.hidden_size
         inps = input_ids.to(self.dev)
         inps = self.model.embed_tokens(inps)
-        cpu_layer_num = 0
-        outliner_num = 0
-        outliners = []
+        # cpu_layer_num = 0
+        # outliner_num = 0
+        # outliners = []
+
         for i_layer, layer in enumerate(self.model.layers):
+            # print(
+            #     f"Layer {i_layer}: {torch.cuda.memory_allocated(self.dev)/1024**3} GB"
+            # )
             original_inps_shape = inps.shape
             inps_residual = inps
-            start_time = time.time()
+            # start_time = time.time()
             inps = layer.input_layernorm(inps)
-
+            # print(f"{torch.cuda.memory_allocated(self.dev)/1024**3} GB")
             inps, self_attn_weights, present_key_value = layer.self_attn(
                 inps,
                 position_ids=position_ids,
@@ -620,14 +827,15 @@ class FiddlerMixtral:
                 use_cache=True,
             )
 
+            # exit(0)
             # inps.shape: (batch_size, seq_len/token_num, embed_dim)
             inps = inps_residual + inps
             inps_residual = inps
             inps = layer.post_attention_layernorm(inps)
             # torch.cuda.synchronize()
-            self.attention_time.append((time.time() - start_time) * 10**6)
+            # self.attention_time.append((time.time() - start_time) * 10**6)
             inps = inps.view(-1, hidden_dim)
-            start_time = time.time()
+            # start_time = time.time()
             # print(f"Attention time:{(time.time()-start_time)*10**3}")
             # inps.shape: (batch_size*seq_len*embed_dim/hidden_dim, hidden_dim)
             router_logits = layer.block_sparse_moe.gate(inps)
@@ -636,10 +844,16 @@ class FiddlerMixtral:
             routing_weights, selected_experts = torch.topk(routing_weights, 2, dim=-1)
             # routing_weights.shape: (batch_size*seq_len, 2)
             # selected_experts.shape: (batch_size*seq_len, 2)
+            # activated_experts, counts = torch.unique(
+            #     selected_experts, return_counts=True
+            # )
+            # for i in range(selected_experts.shape[0]):
+            #     for j in range(selected_experts.shape[1]):
+            #         self.expert_counts[i_layer][selected_experts[i, j]] += 1
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
             # print(f"Selection time:{(time.time()-start_time)*10**3}")
             # torch.cuda.synchronize()
-            self.selection_time.append((time.time() - start_time) * 10**6)
+            # self.selection_time.append((time.time() - start_time) * 10**6)
             # for top_2 in selected_experts:
             #     for i in top_2:
             #         self.expert_token_num[i_layer][i] += 1
@@ -689,7 +903,7 @@ class FiddlerMixtral:
 
             else:
                 # prefill stage with offloading
-                start_time = time.time()
+                # start_time = time.time()
                 expert_mask = torch.nn.functional.one_hot(
                     selected_experts, num_classes=8
                 ).permute(2, 1, 0)
@@ -708,12 +922,12 @@ class FiddlerMixtral:
                     top_2s.append(top_2)
                     # expected latency at CPU: number of token * cost_at_cpu
                     # expected latency at GPU: cost_at_gpu (constant)
-                    cpu_cost = top_2.shape[0] * self.latency_cpu
-                    gpu_cost = self.latency_gpu + cpu_cost * 0.1
+                    cpu_cost = self.cpu_latency * top_2.shape[0]
+                    gpu_cost = self.copy_latency + self.gpu_latency
                     if self.is_expert_in_gpu(i_layer, i_expert):
                         # if the expert is in GPU, the latency at GPU is
                         # approximately 0
-                        gpu_cost = cpu_cost * 0.1
+                        gpu_cost = self.gpu_latency
                         self.cnt_expert_hit += top_2.shape[0]
                     self.cnt_expert_all += top_2.shape[0]
                     if cpu_cost <= gpu_cost:
@@ -729,16 +943,16 @@ class FiddlerMixtral:
                 # Mixtral
                 # print(cpu_experts, gpu_experts)
                 # torch.cuda.synchronize()
-                self.search_config_time.append((time.time() - start_time) * 10**6)
-                start_time = time.time()
-                use_gpu = False
-                gpu_token_num = 0
+                # self.search_config_time.append((time.time() - start_time) * 10**6)
+                # start_time = time.time()
+                # use_gpu = False
+                # gpu_token_num = 0
                 for i_expert in gpu_experts:
                     top_2_list = top_2s[i_expert].tolist()
                     if len(top_2_list) == 0:
                         continue
-                    use_gpu = True
-                    gpu_token_num += len(top_2_list)
+                    # use_gpu = True
+                    # gpu_token_num += len(top_2_list)
                     idx_list = idxs[i_expert].tolist()
                     current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
                     if self.is_expert_in_gpu(i_layer, i_expert):
@@ -762,24 +976,22 @@ class FiddlerMixtral:
                         current_state.to(self.dev, non_blocking=True),
                     )
                 # torch.cuda.synchronize()
-                if use_gpu:
-                    self.gpu_expert_time.append(
-                        (time.time() - start_time) * 10**6 / gpu_token_num
-                    )
+                # if use_gpu:
+                #     self.gpu_expert_time.append(
+                #         (time.time() - start_time) * 10**6 / gpu_token_num
+                #     )
 
-                use_cpu = False
-                cpu_start = time.time()
-                cpu_token_num = 0
+                # use_cpu = False
+                # cpu_start = time.time()
+                # cpu_token_num = 0
                 for i_expert in cpu_experts:
                     top_2_list = top_2s[i_expert].tolist()
                     if len(top_2_list) == 0:
                         continue
-                    use_cpu = True
-                    cpu_token_num += len(top_2_list)
+                    # use_cpu = True
+                    # cpu_token_num += len(top_2_list)
                     idx_list = idxs[i_expert].tolist()
                     current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
-
-                    # measure data transfer time
                     current_state = self.run_expert_at_cpu(
                         i_layer,
                         i_expert,
@@ -791,20 +1003,60 @@ class FiddlerMixtral:
                         top_2s[i_expert].to(self.dev, non_blocking=True),
                         current_state.to(self.dev, non_blocking=True),
                     )
+                # lock = threading.Lock()
+                # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                #     futures = dict()
+                #     for i_expert in cpu_experts:
+                #         top_2_list = top_2s[i_expert].tolist()
+                #         if len(top_2_list) == 0:
+                #             continue
+                #         use_cpu = True
+                #         cpu_token_num += len(top_2_list)
+                #         idx_list = idxs[i_expert].tolist()
+                #         current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
+                #         futures.update(
+                #             {
+                #                 executor.submit(
+                #                     self.run_expert_at_cpu,
+                #                     i_layer,
+                #                     i_expert,
+                #                     current_state.to("cpu"),
+                #                     routing_weights[top_2_list, idx_list, None].to(
+                #                         "cpu"
+                #                     ),
+                #                 ): i_expert
+                #             }
+                #         )
+                #         # # measure data transfer time
+                #         # current_state = self.run_expert_at_cpu(
+                #         #     i_layer,
+                #         #     i_expert,
+                #         #     current_state.to("cpu"),
+                #         #     routing_weights[top_2_list, idx_list, None].to("cpu"),
+                #         # )
+                #     for future in concurrent.futures.as_completed(futures):
+                #         i_expert = futures[future]
+                #         current_state = future.result()
+                #         with lock:
+                #             inps_after_experts.index_add_(
+                #                 0,
+                #                 top_2s[i_expert].to(self.dev, non_blocking=True),
+                #                 current_state.to(self.dev, non_blocking=True),
+                #             )
                 # torch.cuda.synchronize()
-                if use_cpu:
-                    cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
-                    if cpu_time > 10000:
-                        # print(
-                        #     f"Layer {i_layer} CPU time: {cpu_time:.2f} us, token num: {cpu_token_num}"
-                        # )
-                        # print(f"CPU Experts: {cpu_experts}, inps shape: {inps.shape}")
-                        outliner_num += 1
-                        outliners.append(cpu_time * cpu_token_num)
-                        # exit(0)
-                    self.cpu_expert_time.append(cpu_time)
-                if use_cpu:
-                    cpu_layer_num += 1
+                # if use_cpu:
+                #     cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
+                #     if cpu_time > 10000:
+                #         # print(
+                #         #     f"Layer {i_layer} CPU time: {cpu_time:.2f} us, token num: {cpu_token_num}"
+                #         # )
+                #         # print(f"CPU Experts: {cpu_experts}, inps shape: {inps.shape}")
+                #         outliner_num += 1
+                #         outliners.append(cpu_time * cpu_token_num)
+                #         # exit(0)
+                #     self.cpu_expert_time.append(cpu_time)
+                # if use_cpu:
+                #     cpu_layer_num += 1
                 # expert_time = time.time() - start_time
                 # print(f"Expert time: {expert_time}")
             # addition because there's residual connection over moe layer
@@ -813,20 +1065,21 @@ class FiddlerMixtral:
             # print(f"Layer time: {layer_time}")
 
             # end of one layer
-        self.cpu_layer_num.append(cpu_layer_num)
-        self.outliner_nums.append(outliner_num)
-        self.outliners.extend(outliners)
+
+        # self.cpu_layer_num.append(cpu_layer_num)
+        # self.outliner_nums.append(outliner_num)
+        # self.outliners.extend(outliners)
         inps = self.model.norm(inps)
         lm_logis = self.lm_head(inps)
-
         self.past_key_value = present_key_value
+
         return lm_logis
 
     def run_expert_at_cpu(self, i_layer, i_expert, inps, routing_weights):
         """Run the expert at CPU"""
-        # return self.model.layers[i_layer].block_sparse_moe.experts[i_expert](
-        #     inps, routing_weights
-        # )
+        return self.model.layers[i_layer].block_sparse_moe.experts[i_expert](
+            inps, routing_weights
+        )
         return (
             self.cpu_experts[i_layer][i_expert](inps, self.cpp_threads)
             * routing_weights
@@ -852,3 +1105,11 @@ class FiddlerMixtral:
 
     def reset_popular_experts(self):
         self.expert_token_num = np.zeros((self.n_layer, self.n_expert), dtype=int)
+
+    def get_KV_cache_size(self):
+        total_size = 0
+        for i in range(len(self.past_key_value)):
+            key, value = self.past_key_value[i]
+            total_size += key.element_size() * key.nelement()
+            total_size += value.element_size() * value.nelement()
+        return total_size
