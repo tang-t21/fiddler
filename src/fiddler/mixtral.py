@@ -304,19 +304,6 @@ class FiddlerMixtral:
             self.model.layers[i].block_sparse_moe.gate.to(self.dev)
             self.model.layers[i].post_attention_layernorm.to(self.dev)
             # only model.layers[i].block_sparse_moe.experts is on CPU
-    
-    def calc_non_expert_params(self):
-        """Calculate the number of parameters of non-expert layers"""
-        n_param = 0
-        n_param+=sum(p.numel() for p in self.model.embed_tokens.parameters())
-        n_param+=sum(p.numel() for p in self.model.norm.parameters())
-        n_param+=sum(p.numel() for p in self.lm_head.parameters())
-        for i in range(len(self.model.layers)):
-            n_param+=sum(p.numel() for p in self.model.layers[i].self_attn.parameters())
-            n_param+=sum(p.numel() for p in self.model.layers[i].input_layernorm.parameters())
-            n_param+=sum(p.numel() for p in self.model.layers[i].block_sparse_moe.gate.parameters())
-            n_param+=sum(p.numel() for p in self.model.layers[i].post_attention_layernorm.parameters())
-        self.n_non_expert_params = n_param
 
     def set_expert_loc(self, n_expert_on_gpu, popular_experts=None):
         """Set the location of experts"""
@@ -631,7 +618,6 @@ class FiddlerMixtral:
         # get the amount of free memory on GPU
         total_mem = torch.cuda.get_device_properties(self.dev).total_memory
         kv_cache_mem = self.n_layer * max_len * self.model.config.hidden_size * 2 * 2
-        free_mem = total_mem*0.97 - self.non_expert_alloc_mem - kv_cache_mem
         free_mem = total_mem*0.97 - self.non_expert_alloc_mem - kv_cache_mem
         return int((free_mem) // (n_param * 2))
     
