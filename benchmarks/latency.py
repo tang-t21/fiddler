@@ -35,28 +35,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # path_json = "./lmsys_chat.jsonl"
+    path_json = "./lmsys_chat.jsonl"
+    with open(path_json, "r") as f:
+        data = [json.loads(line)["conversation"][0]["content"] for line in f]
+    dataset_name="LMSYS"
+    texts = []
+    for d in data:
+        if len(d) == 0:
+            continue
+        # the input of the first round
+        texts.append(" ".join(d.split()))
+    
+    # path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
+    # dataset_name="ShareGPT"
     # with open(path_json, "r") as f:
-    #     data = [json.loads(line) for line in f]
+    #     data = json.load(f)
 
     # texts = []
     # for d in data:
-    #     if len(d["conversation"]) == 0:
+    #     if len(d["conversations"]) == 0:
     #         continue
     #     # the input of the first round
-    #     texts.append(" ".join(d["conversation"][0]["content"].split()))
-    
-    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
-    dataset_name="ShareGPT"
-    with open(path_json, "r") as f:
-        data = json.load(f)
-
-    texts = []
-    for d in data:
-        if len(d["conversations"]) == 0:
-            continue
-        # the input of the first round
-        texts.append(" ".join(d["conversations"][0]["value"].split()))
+    #     texts.append(" ".join(d["conversations"][0]["value"].split()))
 
     random.seed(0)
     random.shuffle(texts)
