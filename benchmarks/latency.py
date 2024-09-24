@@ -30,21 +30,32 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--beam_width", type=int, default=1, help="Beam search width.")
-    parser.add_argument("--torch_threads", type=int, default=16, help="Torch threads.")
+    parser.add_argument("--torch_threads", type=int, default=8, help="Torch threads.")
     parser.add_argument("--cpp_threads", type=int, default=44, help="C++ threads.")
 
     args = parser.parse_args()
 
-    path_json = "./lmsys_chat.jsonl"
+    # path_json = "./lmsys_chat.jsonl"
+    # with open(path_json, "r") as f:
+    #     data = [json.loads(line) for line in f]
+
+    # texts = []
+    # for d in data:
+    #     if len(d["conversation"]) == 0:
+    #         continue
+    #     # the input of the first round
+    #     texts.append(" ".join(d["conversation"][0]["content"].split()))
+    
+    path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
     with open(path_json, "r") as f:
-        data = [json.loads(line) for line in f]
+        data = json.load(f)
 
     texts = []
     for d in data:
-        if len(d["conversation"]) == 0:
+        if len(d["conversations"]) == 0:
             continue
         # the input of the first round
-        texts.append(" ".join(d["conversation"][0]["content"].split()))
+        texts.append(" ".join(d["conversations"][0]["value"].split()))
 
     random.seed(0)
     random.shuffle(texts)
@@ -74,6 +85,8 @@ if __name__ == "__main__":
                     "decode_time:",
                     decode_time,
                 )
+    if not os.path.exists('./results/'):
+        os.makedirs('./results/')
     with open(
                 f"./results/latency-{args.torch_threads}-{args.cpp_threads}.txt", "a"
             ) as f:
@@ -106,6 +119,8 @@ if __name__ == "__main__":
                     prefill_time,
                     "decode_time:",
                     decode_time,
+                    "hit_rate:",
+                    hit_rate
                 )
                 # print(max(model.cpu_expert_time), min(model.cpu_expert_time))
                 # # print(model.outliner_nums)

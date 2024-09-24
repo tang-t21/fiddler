@@ -43,7 +43,6 @@ class FiddlerMixtral:
         self.cpu_layer_num = []
         self.outliner_nums = []
         self.outliners = []
-        # self.cpu_experts = [[] for i in range(self.n_layer)]
         self.beam_width = args.beam_width
 
         self.torch_threads = args.torch_threads
@@ -61,7 +60,9 @@ class FiddlerMixtral:
         self.expert_pattern = []
         self.expert_counts = np.zeros(self.n_layer * self.n_expert, dtype=int)
 
+        # self.cpu_experts = [[] for i in range(self.n_layer)]
         # self.init_cpu_expert()
+        # self.test_cpu_expert()
         self.gpu_latency = np.mean(self.expert_gpu(n_expert=1, batch_size=4)) * 10**3
         self.copy_latency = np.mean(self.weight_copy()) * 10**3
         self.cpu_latency = np.mean(self.expert_cpu(1, 1)) * 10**3
@@ -274,7 +275,7 @@ class FiddlerMixtral:
         print(f"Varation of cpp time: {np.var(cpp_times)*10**6:.2f} us")
         print(f"Varation of pytorch time: {np.var(pytorch_times)*10**6:.2f} us")
         # print(out1)
-
+        exit()
         # print(out2)
         # delta = torch.abs(out1 - out2)
         # print(f"Max delta: {delta.max()}")
@@ -599,6 +600,7 @@ class FiddlerMixtral:
         self.set_expert_loc(n_expert_on_gpu)
         self.clear_cache()
         self.bring_expert_to_gpu()
+        self.pin_expert_in_cpu()
 
     def pin_expert_in_cpu(self):
         for i in range(self.n_layer):
@@ -620,7 +622,6 @@ class FiddlerMixtral:
     def calc_n_expert_on_gpu(self, max_len):
         """Get the number of experts that we can put on GPU"""
         # get the number of parameters of one expert
-        self.default_max_len = max_len
         n_param = sum(
             p.numel()
             for p in self.model.layers[0].block_sparse_moe.experts[0].parameters()
@@ -628,7 +629,7 @@ class FiddlerMixtral:
         # get the amount of free memory on GPU
         total_mem = torch.cuda.get_device_properties(self.dev).total_memory
         kv_cache_mem = self.n_layer * max_len * self.model.config.hidden_size * 2 * 2
-        free_mem = total_mem*0.98 - self.non_expert_alloc_mem - kv_cache_mem
+        free_mem = total_mem*0.97 - self.non_expert_alloc_mem - kv_cache_mem
         return int((free_mem) // (n_param * 2))
     
 
