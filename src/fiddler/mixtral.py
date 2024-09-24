@@ -618,7 +618,8 @@ class FiddlerMixtral:
         # get the amount of free memory on GPU
         total_mem = torch.cuda.get_device_properties(self.dev).total_memory
         kv_cache_mem = self.n_layer * max_len * self.model.config.hidden_size * 2 * 2
-        free_mem = total_mem*0.97 - self.non_expert_alloc_mem - kv_cache_mem
+        attn_weight_mem = max_len**2 * 2 * 32
+        free_mem = total_mem*0.98 - self.non_expert_alloc_mem - kv_cache_mem - attn_weight_mem
         return int((free_mem) // (n_param * 2))
     
 

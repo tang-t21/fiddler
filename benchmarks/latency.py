@@ -91,7 +91,7 @@ if __name__ == "__main__":
     file_name = f"./results/latency-{dataset_name}-{args.torch_threads}-{args.cpp_threads}.txt"
     with open(file_name, "a") as f:
         f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
-    for input_token in [32, 64, 256, 512, 1024, 2048]:
+    for input_token in [32,64,128,256,512,1024,2048]:
         idx_text = 0
         input_text = None
         for text in texts:
@@ -102,12 +102,12 @@ if __name__ == "__main__":
         if input_text is None:
             print(f"No enough input length for length larger than {input_token}")
             break
-        for output_token in [1024, 2048, 4096]:
+        for output_token in [64,128,256,512,1024,2048,4096]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
             n_sample = 3 if output_token < 1024 else 1
             print(f"input_token: {input_token}, output_token: {output_token}")
-            model.reset_expert_loc((output_token+input_token))
+            model.reset_expert_loc((output_token+input_token-1))
             prefill_time_sum, decode_time_sum, hit_rate_sum = 0, 0, 0
             for _ in range(n_sample):
 
