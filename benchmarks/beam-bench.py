@@ -45,9 +45,16 @@ if __name__ == "__main__":
     model = FiddlerMixtral(args)
     n_sample = 3
 
-    input_lengths = [2**i for i in range(5, 9)]
-    output_lengths = [2**i for i in range(5, 9)]
-    beam_widths = [1] + [4 * i for i in range(1, 4)]
+    # input_lengths = [2**i for i in range(5, 9)]
+    # output_lengths = [2**i for i in range(5, 9)]
+    input_lengths=[32]
+    output_lengths=[64]
+    beam_widths = [4 * i for i in range(1, 5)]
+    file_path = "./results/beam-bench-results.txt"
+    with open(file_path, "a") as f:
+                f.write(
+                   "input_length,output_length,beam_width,prefill_time,decode_time,hit_rate\n"
+                )
     for input_length in input_lengths:
         for output_length in output_lengths:
             for beam_width in beam_widths:
@@ -72,7 +79,7 @@ if __name__ == "__main__":
                     prefill_time_sum += prefill_time
                     decode_time_sum += decode_time
                     hit_rate_sum += hit_rate
-                with open("./beam-bench-results.txt", "a") as f:
+                with open(file_path, "a") as f:
                     f.write(
                         f"{input_length},{output_length},{beam_width},{prefill_time_sum/n_sample:.3f},{decode_time_sum/n_sample:.3f},{hit_rate_sum/n_sample:.4f}\n"
                     )
