@@ -35,17 +35,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # path_json = "./lmsys_chat.jsonl"
-    # with open(path_json, "r") as f:
-    #     data = [json.loads(line) for line in f]
-
-    # texts = []
-    # for d in data:
-    #     if len(d["conversation"]) == 0:
-    #         continue
-    #     # the input of the first round
-    #     texts.append(" ".join(d["conversation"][0]["content"].split()))
-
     path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
     with open(path_json, "r") as f:
         data = json.load(f)
@@ -56,7 +45,6 @@ if __name__ == "__main__":
             continue
         # the input of the first round
         texts.append(" ".join(d["conversations"][0]["value"].split()))
-
     random.seed(0)
     random.shuffle(texts)
     model = FiddlerMixtral(args)
@@ -91,7 +79,7 @@ if __name__ == "__main__":
                 f"./results/latency-{args.torch_threads}-{args.cpp_threads}.txt", "a"
             ) as f:
             f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
-    for input_token in [32, 64, 128, 256, 512, 1024, 2048]:
+    for input_token in [4096, 8192]:
         idx_text = 0
         input_text = None
         for text in texts:
@@ -102,7 +90,7 @@ if __name__ == "__main__":
         if input_text is None:
             print(f"No enough input length for length larger than {input_token}")
             break
-        for output_token in [64, 128, 256, 512, 1024, 2048, 4096]:
+        for output_token in [1]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
             print(f"input_token: {input_token}, output_token: {output_token}")
@@ -119,8 +107,8 @@ if __name__ == "__main__":
                     prefill_time,
                     "decode_time:",
                     decode_time,
-                    "hit_rate",
-                    hit_rate
+                    "hit_rate:",
+                    hit_rate,
                 )
                 # print(max(model.cpu_expert_time), min(model.cpu_expert_time))
                 # # print(model.outliner_nums)
