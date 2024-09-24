@@ -30,7 +30,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--beam_width", type=int, default=1, help="Beam search width.")
-    parser.add_argument("--torch_threads", type=int, default=8, help="Torch threads.")
+    parser.add_argument("--torch_threads", type=int, default=16, help="Torch threads.")
     parser.add_argument("--cpp_threads", type=int, default=44, help="C++ threads.")
 
     args = parser.parse_args()
@@ -46,7 +46,8 @@ if __name__ == "__main__":
     #     # the input of the first round
     #     texts.append(" ".join(d["conversation"][0]["content"].split()))
     
-    path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
+    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
+    dataset_name="ShareGPT"
     with open(path_json, "r") as f:
         data = json.load(f)
 
@@ -87,11 +88,10 @@ if __name__ == "__main__":
                 )
     if not os.path.exists('./results/'):
         os.makedirs('./results/')
-    with open(
-                f"./results/latency-{args.torch_threads}-{args.cpp_threads}.txt", "a"
-            ) as f:
-            f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
-    for input_token in [256, 512, 1024, 2048]:
+    file_name = f"./results/latency-{dataset_name}-{args.torch_threads}-{args.cpp_threads}.txt"
+    with open(file_name, "a") as f:
+        f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
+    for input_token in [32, 64, 256, 512, 1024, 2048]:
         idx_text = 0
         input_text = None
         for text in texts:
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         if input_text is None:
             print(f"No enough input length for length larger than {input_token}")
             break
-        for output_token in [64, 128, 256, 512, 1024, 2048, 4096]:
+        for output_token in [1024, 2048, 4096]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
             n_sample = 3 if output_token < 1024 else 1
@@ -157,9 +157,7 @@ if __name__ == "__main__":
                 decode_time_sum += decode_time
                 hit_rate_sum += hit_rate
             # write to file
-            with open(
-                f"./results/latency-{args.torch_threads}-{args.cpp_threads}.txt", "a"
-            ) as f:
+            with open(file_name, "a") as f:
                 f.write(
                     f"{input_token},{output_token}, "
                     f"{prefill_time_sum / n_sample}, "
