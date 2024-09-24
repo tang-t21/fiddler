@@ -78,7 +78,7 @@ if __name__ == "__main__":
                 f"./results/latency-{args.torch_threads}-{args.cpp_threads}.txt", "a"
             ) as f:
             f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
-    for input_token in [32, 64, 128, 256, 512, 1024, 2048]:
+    for input_token in [256, 512, 1024, 2048]:
         idx_text = 0
         input_text = None
         for text in texts:
@@ -92,6 +92,7 @@ if __name__ == "__main__":
         for output_token in [64, 128, 256, 512, 1024, 2048, 4096]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
+            n_sample = 3 if output_token < 1024 else 1
             print(f"input_token: {input_token}, output_token: {output_token}")
             model.reset_expert_loc((output_token+input_token))
             prefill_time_sum, decode_time_sum, hit_rate_sum = 0, 0, 0
@@ -106,6 +107,7 @@ if __name__ == "__main__":
                     prefill_time,
                     "decode_time:",
                     decode_time,
+                    'hit_rate:', hit_rate
                 )
                 # print(max(model.cpu_expert_time), min(model.cpu_expert_time))
                 # # print(model.outliner_nums)
