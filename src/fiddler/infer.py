@@ -84,8 +84,8 @@ if __name__ == "__main__":
         default=20,
         help="Number of tokens to generate.",
     )
-    parser.add_argument("--torch_threads", type=int, default=16, help="Torch threads.")
-    parser.add_argument("--cpp_threads", type=int, default=44, help="C++ threads.")
+    parser.add_argument("--torch_threads", type=int, default=8, help="Torch threads.")
+    parser.add_argument("--cpp_threads", type=int, default=12, help="C++ threads.")
     parser.add_argument("--beam_width", type=int, default=1, help="Beam search width.")
     parser.add_argument(
         "--token_num", type=int, default=128, help="Number of tokens to process."
