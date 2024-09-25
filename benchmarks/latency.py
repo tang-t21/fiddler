@@ -35,28 +35,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    path_json = "./lmsys_chat.jsonl"
-    with open(path_json, "r") as f:
-        data = [json.loads(line)["conversation"][0]["content"] for line in f]
-    dataset_name="LMSYS"
-    texts = []
-    for d in data:
-        if len(d) == 0:
-            continue
-        # the input of the first round
-        texts.append(" ".join(d.split()))
-    
-    # path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
-    # dataset_name="ShareGPT"
+    # path_json = "./lmsys_chat.jsonl"
     # with open(path_json, "r") as f:
-    #     data = json.load(f)
-
+    #     data = [json.loads(line)["conversation"][0]["content"] for line in f]
+    # dataset_name="LMSYS"
     # texts = []
     # for d in data:
-    #     if len(d["conversations"]) == 0:
+    #     if len(d) == 0:
     #         continue
     #     # the input of the first round
-    #     texts.append(" ".join(d["conversations"][0]["value"].split()))
+    #     texts.append(" ".join(d.split()))
+    
+    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
+    dataset_name="ShareGPT"
+    with open(path_json, "r") as f:
+        data = json.load(f)
+
+    texts = []
+    for d in data:
+        if len(d["conversations"]) == 0:
+            continue
+        # the input of the first round
+        texts.append(" ".join(d["conversations"][0]["value"].split()))
 
     random.seed(0)
     random.shuffle(texts)
@@ -133,25 +133,25 @@ if __name__ == "__main__":
                 # print(
                 #     f"CPU Layer Num: | {sum(model.cpu_layer_num)/len(model.cpu_layer_num):.2f} | {np.var(model.cpu_layer_num):.2f}"
                 # )
-                # print(
-                #     f"OneToken | {sum(model.one_token_time)/len(model.one_token_time):.2f} ms | {np.var(model.one_token_time):.2f} ms"
-                # )
-                # print("         | Average value | Variation | Portion")
-                # print(
-                #     f"CPUExpert | {sum(model.cpu_expert_time)/len(model.cpu_expert_time):.2f} | {np.var(model.cpu_expert_time):.2f} | {sum(model.cpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
-                # )
-                # print(
-                #     f"GPUExpert | {sum(model.gpu_expert_time)/len(model.gpu_expert_time):.2f} | {np.var(model.gpu_expert_time):.2f} | {sum(model.gpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
-                # )
-                # print(
-                #     f"Attention | {sum(model.attention_time)/len(model.attention_time):.2f} | {np.var(model.attention_time):.2f} | {sum(model.attention_time)/(decode_time+prefill_time)/10**6:.2f}"
-                # )
+                print(
+                    f"OneToken | {sum(model.one_token_time)/len(model.one_token_time):.2f} ms | {np.var(model.one_token_time):.2f} ms"
+                )
+                print("         | Average value | Variation | Portion")
+                print(
+                    f"CPUExpert | {sum(model.cpu_expert_time)/len(model.cpu_expert_time):.2f} | {np.var(model.cpu_expert_time):.2f} | {sum(model.cpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
+                )
+                print(
+                    f"GPUExpert | {sum(model.gpu_expert_time)/len(model.gpu_expert_time):.2f} | {np.var(model.gpu_expert_time):.2f} | {sum(model.gpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
+                )
+                print(
+                    f"Attention | {sum(model.attention_time)/len(model.attention_time):.2f} | {np.var(model.attention_time):.2f} | {sum(model.attention_time)/(decode_time+prefill_time)/10**6:.2f}"
+                )
                 # print(
                 #     f"Selection | {sum(model.selection_time)/len(model.selection_time):.2f} | {np.var(model.selection_time):.2f} | {sum(model.selection_time)/(decode_time+prefill_time)/10**6:.2f}"
                 # )
-                # print(
-                #     f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time):.2f} | {np.var(model.search_config_time):.2f} | {sum(model.search_config_time)/(decode_time+prefill_time)/10**6:.2f}"
-                # )
+                print(
+                    f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time):.2f} | {np.var(model.search_config_time):.2f} | {sum(model.search_config_time)/(decode_time+prefill_time)/10**6:.2f}"
+                )
 
                 prefill_time_sum += prefill_time
                 decode_time_sum += decode_time

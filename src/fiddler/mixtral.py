@@ -808,7 +808,7 @@ class FiddlerMixtral:
             # )
             original_inps_shape = inps.shape
             inps_residual = inps
-            # start_time = time.time()
+            start_time = time.time()
             inps = layer.input_layernorm(inps)
             # print(f"{torch.cuda.memory_allocated(self.dev)/1024**3} GB")
             inps, self_attn_weights, present_key_value = layer.self_attn(
@@ -823,8 +823,8 @@ class FiddlerMixtral:
             inps = inps_residual + inps
             inps_residual = inps
             inps = layer.post_attention_layernorm(inps)
-            # torch.cuda.synchronize()
-            # self.attention_time.append((time.time() - start_time) * 10**6)
+            torch.cuda.synchronize()
+            self.attention_time.append((time.time() - start_time) * 10**6)
             inps = inps.view(-1, hidden_dim)
             # start_time = time.time()
             # print(f"Attention time:{(time.time()-start_time)*10**3}")
@@ -894,7 +894,7 @@ class FiddlerMixtral:
 
             else:
                 # prefill stage with offloading
-                # start_time = time.time()
+                start_time = time.time()
                 expert_mask = torch.nn.functional.one_hot(
                     selected_experts, num_classes=8
                 ).permute(2, 1, 0)
@@ -934,16 +934,16 @@ class FiddlerMixtral:
                 # Mixtral
                 # print(cpu_experts, gpu_experts)
                 # torch.cuda.synchronize()
-                # self.search_config_time.append((time.time() - start_time) * 10**6)
-                # start_time = time.time()
-                # use_gpu = False
-                # gpu_token_num = 0
+                self.search_config_time.append((time.time() - start_time) * 10**6)
+                start_time = time.time()
+                use_gpu = False
+                gpu_token_num = 0
                 for i_expert in gpu_experts:
                     top_2_list = top_2s[i_expert].tolist()
                     if len(top_2_list) == 0:
                         continue
-                    # use_gpu = True
-                    # gpu_token_num += len(top_2_list)
+                    use_gpu = True
+                    gpu_token_num += len(top_2_list)
                     idx_list = idxs[i_expert].tolist()
                     current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
                     if self.is_expert_in_gpu(i_layer, i_expert):
@@ -967,20 +967,20 @@ class FiddlerMixtral:
                         current_state.to(self.dev, non_blocking=True),
                     )
                 # torch.cuda.synchronize()
-                # if use_gpu:
-                #     self.gpu_expert_time.append(
-                #         (time.time() - start_time) * 10**6 / gpu_token_num
-                #     )
+                if use_gpu:
+                    self.gpu_expert_time.append(
+                        (time.time() - start_time) * 10**6 / gpu_token_num
+                    )
 
-                # use_cpu = False
-                # cpu_start = time.time()
-                # cpu_token_num = 0
+                use_cpu = False
+                cpu_start = time.time()
+                cpu_token_num = 0
                 for i_expert in cpu_experts:
                     top_2_list = top_2s[i_expert].tolist()
                     if len(top_2_list) == 0:
                         continue
-                    # use_cpu = True
-                    # cpu_token_num += len(top_2_list)
+                    use_cpu = True
+                    cpu_token_num += len(top_2_list)
                     idx_list = idxs[i_expert].tolist()
                     current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
                     current_state = self.run_expert_at_cpu(
@@ -994,58 +994,18 @@ class FiddlerMixtral:
                         top_2s[i_expert].to(self.dev, non_blocking=True),
                         current_state.to(self.dev, non_blocking=True),
                     )
-                # lock = threading.Lock()
-                # with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                #     futures = dict()
-                #     for i_expert in cpu_experts:
-                #         top_2_list = top_2s[i_expert].tolist()
-                #         if len(top_2_list) == 0:
-                #             continue
-                #         use_cpu = True
-                #         cpu_token_num += len(top_2_list)
-                #         idx_list = idxs[i_expert].tolist()
-                #         current_state = inps[None, top_2_list].reshape(-1, hidden_dim)
-                #         futures.update(
-                #             {
-                #                 executor.submit(
-                #                     self.run_expert_at_cpu,
-                #                     i_layer,
-                #                     i_expert,
-                #                     current_state.to("cpu"),
-                #                     routing_weights[top_2_list, idx_list, None].to(
-                #                         "cpu"
-                #                     ),
-                #                 ): i_expert
-                #             }
-                #         )
-                #         # # measure data transfer time
-                #         # current_state = self.run_expert_at_cpu(
-                #         #     i_layer,
-                #         #     i_expert,
-                #         #     current_state.to("cpu"),
-                #         #     routing_weights[top_2_list, idx_list, None].to("cpu"),
-                #         # )
-                #     for future in concurrent.futures.as_completed(futures):
-                #         i_expert = futures[future]
-                #         current_state = future.result()
-                #         with lock:
-                #             inps_after_experts.index_add_(
-                #                 0,
-                #                 top_2s[i_expert].to(self.dev, non_blocking=True),
-                #                 current_state.to(self.dev, non_blocking=True),
-                #             )
-                # torch.cuda.synchronize()
-                # if use_cpu:
-                #     cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
-                #     if cpu_time > 10000:
-                #         # print(
-                #         #     f"Layer {i_layer} CPU time: {cpu_time:.2f} us, token num: {cpu_token_num}"
-                #         # )
-                #         # print(f"CPU Experts: {cpu_experts}, inps shape: {inps.shape}")
-                #         outliner_num += 1
-                #         outliners.append(cpu_time * cpu_token_num)
-                #         # exit(0)
-                #     self.cpu_expert_time.append(cpu_time)
+                torch.cuda.synchronize()
+                if use_cpu:
+                    cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
+                    # if cpu_time > 10000:
+                    #     # print(
+                    #     #     f"Layer {i_layer} CPU time: {cpu_time:.2f} us, token num: {cpu_token_num}"
+                    #     # )
+                    #     # print(f"CPU Experts: {cpu_experts}, inps shape: {inps.shape}")
+                    #     outliner_num += 1
+                    #     outliners.append(cpu_time * cpu_token_num)
+                    #     # exit(0)
+                    self.cpu_expert_time.append(cpu_time)
                 # if use_cpu:
                 #     cpu_layer_num += 1
                 # expert_time = time.time() - start_time
