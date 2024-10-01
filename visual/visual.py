@@ -11,7 +11,7 @@ datasets=["sharegpt","lmsys"]
 def read_normal_results(env, dataset, framework):
     throughputs = []
     with open(f"{result_dir}/latency-{env}-{dataset}-{framework}.txt", "r") as f:
-        for line in f[1:]:
+        for line in f.readlines()[1:]:
             if int(line.split(",")[1]) <= 1024 and int(line.split(",")[0]) <= 1024:
                 throughputs.append(float(line.split(",")[-1]))
     return throughputs
@@ -20,7 +20,7 @@ def read_normal_results(env, dataset, framework):
 def read_long_results(env, dataset, framework):
     throughputs = []
     with open(f"{result_dir}/latency-{env}-{dataset}-{framework}.txt", "r") as f:
-        for line in f[1:]:
+        for line in f.readlines()[1:]:
             if int(line.split(",")[1]) > 512 or int(line.split(",")[0]) >= 512:
                 throughputs.append(float(line.split(",")[-1]))
     return throughputs
@@ -28,12 +28,12 @@ def read_long_results(env, dataset, framework):
 def read_refill_results(env, dataset, framework):
     latency = []
     with open(f"{result_dir}/prefill-{env}-{dataset}-{framework}.txt", "r") as f:
-        for line in f[1:]:
+        for line in f.readlines()[1:]:
             latency.append(float(line.split(",")[-2]))
     return latency
 
 
-def normal_e2e():
+def normal_e2e(dataset):
     # Sample data (replace with your actual data)
     input_output_tokens = [
         "[32,64]",
@@ -67,48 +67,44 @@ def normal_e2e():
         '[1024,512]',
         "[1024,1024]",
     ]
-    n_bar = len(input_output_tokens)
     tokens_per_second = {
-        "sharegpt":{
-        "env0": {
-            "DeepSpeed-MII": read_normal_results(envs[0],datasets[0], "deepspeed-mii"),
-            "Eliseev & Mazur": read_normal_results(envs[0], datasets[0], "mixtral-offload"),
-            "llama.cpp": read_normal_results(envs[0],datasets[0], "llamacpp"),
-            sys_name: read_normal_results(envs[0],datasets[0], "twiddler"),
+        envs[0]: {
+            "DeepSpeed-MII": read_normal_results(envs[0],dataset, "deepspeed"),
+            "Eliseev & Mazur": read_normal_results(envs[0], dataset, "mixtraloffload"),
+            "llama.cpp": read_normal_results(envs[0],dataset, "llamacpp"),
+            sys_name: read_normal_results(envs[0],dataset, "twiddler"),
         },
-        "env1": {
-            # This is fake data
-            'DeepSpeed-MII': read_normal_results(envs[1],datasets[0], "deepspeed-mii"),
-            'Eliseev & Mazur': read_normal_results(envs[1], datasets[0], "mixtral-offload"),
-            'llama.cpp': read_normal_results(envs[1],datasets[0], "llamacpp"),
-            sys_name: read_normal_results(envs[1],datasets[0], "twiddler"),
+        envs[1]: {
+            'DeepSpeed-MII': read_normal_results(envs[1],dataset, "deepspeed"),
+            'Eliseev & Mazur': read_normal_results(envs[1], dataset, "mixtraloffload"),
+            'llama.cpp': read_normal_results(envs[1],dataset, "llamacpp"),
+            sys_name: read_normal_results(envs[1],dataset, "twiddler"),
         },
-        },
-        "lmsys":{
-             "env0": {
-            "DeepSpeed-MII": read_normal_results(envs[0],datasets[1], "deepspeed-mii"),
-            "Eliseev & Mazur": read_normal_results(envs[0], datasets[1], "mixtral-offload"),
-            "llama.cpp": read_normal_results(envs[0],datasets[1], "llamacpp"),
-            sys_name: read_normal_results(envs[0],datasets[1], "twiddler"),
-            },
-            "env1": {
-            # This is fake data
-            'DeepSpeed-MII': read_normal_results(envs[1],datasets[1], "deepspeed-mii"),
-            'Eliseev & Mazur': read_normal_results(envs[1], datasets[1], "mixtral-offload"),
-            'llama.cpp': read_normal_results(envs[1],datasets[1], "llamacpp"),
-            sys_name: read_normal_results(envs[1],datasets[1], "twiddler"),
-            }
-        }
     }
-    return tokens_per_second, input_output_tokens
+
+    mean_speed_ups = []
+    for env in tokens_per_second.keys():
+        speed_ups=[]
+        for i in range(len(input_output_tokens)):
+            speed_up_length = []
+            for key in tokens_per_second[env].keys():
+                if tokens_per_second[env][key][i] == 0:
+                    continue
+                speed_up_length.append(
+                    tokens_per_second[env][sys_name][i] / tokens_per_second[env][key][i]
+                )
+            speed_ups.append(min(speed_up_length[:-1]))
+        print(f"{dataset} on {env} speed up", np.mean(speed_ups))
+        mean_speed_ups.append(np.mean(speed_ups))
+    print(f"average speed up on {dataset}", np.mean(mean_speed_ups))
+    return tokens_per_second, input_output_tokens, mean_speed_ups
 
 def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # append each list with mean value
     print(f"e2e of {dataset}")
-    tokens_per_second=tokens_per_second[dataset]
-    for env in tokens_per_second[dataset].keys():
+    for env in tokens_per_second.keys():
         for key in tokens_per_second[env].keys():
-            tokens_per_second[env][key].append(np.mean(tokens_per_second[env][key]))
+            tokens_per_second[env][key].append(np.mean([t for t in tokens_per_second[env][key] if t != 0]))
             print(
                 "dataset:", dataset, "env:", env, "key:", key, "mean:", np.mean(tokens_per_second[env][key])
             )
@@ -131,21 +127,21 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         )
         axes[i].bar(
             index - 1.5 * bar_width,
-            tokens_per_second[f"env{i}"]["DeepSpeed-MII"],
+            tokens_per_second[envs[i]]["DeepSpeed-MII"],
             bar_width * 0.8,
             label="DeepSpeed-MII",
             edgecolor="black",
         )
         axes[i].bar(
             index - 0.5 * bar_width,
-            tokens_per_second[f"env{i}"]["Eliseev & Mazur"],
+            tokens_per_second[envs[i]]["Eliseev & Mazur"],
             bar_width * 0.8,
             label="Eliseev & Mazur",
             edgecolor="black",
         )
         axes[i].bar(
             index + 0.5 * bar_width,
-            tokens_per_second[f"env{i}"]["llama.cpp"],
+            tokens_per_second[envs[i]]["llama.cpp"],
             bar_width * 0.8,
             label="llama.cpp",
             edgecolor="black",
@@ -153,7 +149,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         )
         axes[i].bar(
             index + 1.5 * bar_width,
-            tokens_per_second[f"env{i}"][sys_name],
+            tokens_per_second[envs[i]][sys_name],
             bar_width * 0.8,
             label=sys_name,
             edgecolor="black",
@@ -161,11 +157,8 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         )
 
         # write a vertical line
-        axes[i].axvline(x=3 - 0.5, color="black", linestyle="-")
-        axes[i].axvline(x=6 - 0.5, color="black", linestyle="-")
-        axes[i].axvline(x=9 - 0.5, color="black", linestyle="-")
-        axes[i].axvline(x=12 - 0.5, color="black", linestyle="-")
-        axes[i].axvline(x=15 - 0.5, color="black", linestyle="-")
+        for j in range(6):
+            axes[i].axvline(x=j * 5 - 0.5, color="black", linestyle="-")
 
         axes[i].set_xlim(-0.5, len(input_output_tokens) + 0.5)
         axes[i].grid(
@@ -176,7 +169,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         axes[i].tick_params(axis="x", which="minor", length=0)
         axes[i].tick_params(axis="x", which="major", length=0)
 
-    fig.supxlabel("[Input Length, Output Length]", fontsize=12)
+    fig.supxlabel("index in (input length,ouput length) list", fontsize=12)
     fig.text(
         0.01,
         0.5,
@@ -192,13 +185,13 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # set y-axis limit
     axes[0].set_ylim(0, 4)
     # axes[1].set_ylim(0, 4)
-    axes[1].set_ylim(0, 9)
+    axes[1].set_ylim(0, 2.5)
 
-    axes[0].set_title("Environment 1 (Quadro RTX 6000 GPU)")
-    axes[1].set_title("Environment 2 (RTX A6000 GPU)")
+    axes[0].set_title("Environment 1")
+    axes[1].set_title("Environment 2")
     # axes[2].set_title('Environment 3 (RTX 6000 Ada GPU)')
     axes[1].set_xticks(index)
-    axes[1].set_xticklabels(input_output_tokens + [mean_label], rotation=0)
+    axes[1].set_xticklabels([i for i in range(len(input_output_tokens))] + [mean_label], rotation=0)
 
     # Add legends
     axes[0].legend(ncol=4)
@@ -206,7 +199,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # plt.ylabel("Inference Speed (token/s) ↑", fontsize=12)
     # plt.xlabel("[Input Length, Output Length]", fontsize=12)
 
-    plt.tight_layout(rect=[0.02, 0, 1, 1])
+    plt.tight_layout(rect=[0.01, 0, 1, 1])
     plt.savefig(f"{output_dir}/e2e-{dataset}.png")
 
 
@@ -217,51 +210,79 @@ def long_context():
         "1024",
         "2048",
         "4096",
-        "8192"
+        "8192",
     ]
 
     mean_label = "Mean"
     prefill_latency = {
-        "env0": {
-            "DeepSpeed-MII": read_refill_results(envs[0],datasets[0], "deepspeed-mii"),
-            "Eliseev & Mazur": read_refill_results(envs[0], datasets[0], "mixtral-offload"),
-            "llama.cpp": read_refill_results(envs[0],datasets[0], "llamacpp"),
-            sys_name: read_refill_results(envs[0],datasets[0], "twiddler"),
+        envs[0]: {
+            "DeepSpeed-MII": [
+                9.42,
+                10.66,
+                13.13,
+                18.23,
+                0,
+            ],
+            "Eliseev & Mazur": [
+                12.87,
+                13.09,
+                13.55,
+                14.83,
+                0,
+            ],
+            "llama.cpp": [
+                6.15,
+                12.37,
+                24.71,
+                49.76,
+                0,
+            ],
+            sys_name: [
+                7.95,
+                9.33,
+                12.25,
+                18.46,
+                0
+            ],
         },
-        "env1": {
-            "DeepSpeed-MII": read_refill_results(envs[1],datasets[0], "deepspeed-mii"),
-            "Eliseev & Mazur": read_refill_results(envs[1], datasets[0], "mixtral-offload"),
+        envs[1]: {
+            "DeepSpeed-MII": read_refill_results(envs[1],datasets[0], "deepspeed"),
+            "Eliseev & Mazur": read_refill_results(envs[1], datasets[0], "mixtraloffload"),
             "llama.cpp":  read_refill_results(envs[1],datasets[0], "llamacpp"),
             sys_name: read_refill_results(envs[1],datasets[0], "twiddler"),
         },
     }
 
-    speed_ups = {"env0": [], "env1": []}
+    speed_ups = {envs[0]: [], envs[1]: []}
     for env in prefill_latency.keys():
         for i in range(len(input_tokens)):
             speed_up_length = []
             for key in prefill_latency[env].keys():
+                if prefill_latency[env][key][i] == 0:
+                    continue
                 speed_up_length.append(
                     prefill_latency[env][key][i] / prefill_latency[env][sys_name][i]
                 )
+            if len(speed_up_length) == 0:
+                continue
             speed_ups[env].append(min(speed_up_length[:-1]))
-    print("env0 speed up", np.mean(speed_ups["env0"]))
-    print("env1 speed up", np.mean(speed_ups["env1"]))
+    print("env0 speed up", np.mean(speed_ups[envs[0]]))
+    print("env1 speed up", np.mean(speed_ups[envs[1]]))
     print(
-        "total average speed up", np.mean(list(speed_ups["env0"] + speed_ups["env1"]))
+        "total average speed up", np.mean(list(speed_ups[envs[0]] + speed_ups[envs[1]]))
     )
 
     # append each list with mean value
     print("long_context")
     for env in prefill_latency.keys():
         for key in prefill_latency[env].keys():
-            prefill_latency[env][key].append(np.mean(prefill_latency[env][key]))
-            print("env:", env, "key:", key, "mean:", np.mean(prefill_latency[env][key]))
+            prefill_latency[env][key].append(np.mean([la for la in prefill_latency[env][key] if la != 0]))
+            print("env:", env, "key:", key, "mean:", prefill_latency[env][key][-1])
 
     plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.get_cmap("Paired").colors)
 
     # Creating subplots
-    fig, axes = plt.subplots(2, 1, figsize=(8, 6))
+    fig, axes = plt.subplots(2, 1, figsize=(10, 4.5))
 
     # Plot data for Environment 1
     bar_width = 0.2
@@ -272,21 +293,21 @@ def long_context():
         )
         axes[i].bar(
             index - 1.5 * bar_width,
-            prefill_latency[f"env{i}"]["DeepSpeed-MII"],
+            prefill_latency[envs[i]]["DeepSpeed-MII"],
             bar_width * 0.8,
             label="DeepSpeed-MII",
             edgecolor="black",
         )
         axes[i].bar(
             index - 0.5 * bar_width,
-            prefill_latency[f"env{i}"]["Eliseev & Mazur"],
+            prefill_latency[envs[i]]["Eliseev & Mazur"],
             bar_width * 0.8,
             label="Eliseev & Mazur",
             edgecolor="black",
         )
         axes[i].bar(
             index + 0.5 * bar_width,
-            prefill_latency[f"env{i}"]["llama.cpp"],
+            prefill_latency[envs[i]]["llama.cpp"],
             bar_width * 0.8,
             label="llama.cpp",
             edgecolor="black",
@@ -294,7 +315,7 @@ def long_context():
         )
         axes[i].bar(
             index + 1.5 * bar_width,
-            prefill_latency[f"env{i}"][sys_name],
+            prefill_latency[envs[i]][sys_name],
             bar_width * 0.8,
             label=sys_name,
             edgecolor="black",
@@ -317,15 +338,23 @@ def long_context():
         axes[i].set_xticklabels(input_tokens + [mean_label], rotation=0)
         axes[i].tick_params(axis="x", which="minor", length=0)
         axes[i].tick_params(axis="x", which="major", length=0)
-        axes[i].set_xlabel("Input Length", fontsize=12)
-        axes[i].set_ylabel("Time To First Token (s) ↓", fontsize=12)
-
+        # axes[i].set_ylabel("Time To First Token (s) ↓", fontsize=12)
+    fig.supxlabel("Input Length", fontsize=12)
+    fig.text(
+        0.03,
+        0.5,
+        "Time To First Token (s) ↓",
+        va="center",
+        ha="center",
+        rotation="vertical",
+        fontsize=12,
+    )
     # add text to environment 2 saying OOM in vertical
     # axes[1].text(2.9, 3, 'Out Of Memory', fontsize=10, color='red', ha='center', rotation=90)
 
-    axes[0].set_title("Environment 1 (Quadro RTX 6000 GPU)")
+    axes[0].set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
-    axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
+    axes[1].set_title("Environment 2")
 
     # axes[0].set_ylabel("Time To First Token (s) ↓")
 
@@ -339,7 +368,8 @@ def long_context():
     # axes[2].legend()
 
     plt.tight_layout()
-    plt.savefig("/home/tian21/fiddler/asset/long_context.png")
+    plt.subplots_adjust(left=0.08)
+    plt.savefig("./fig/long_context.png")
 
 
 def beam():
@@ -408,82 +438,82 @@ def beam():
     )[2:]
 
     # Creating subplots
-    fig, axes = plt.subplots(2, 1, figsize=(8, 6))
+    fig, axes = plt.subplots(1, 1, figsize=(8, 3))
 
     # Plot data for Environment 1
     bar_width = 0.2
     index = np.arange(len(input_tokens) + 1)  # Adding one for the mean column
-    for i in range(2):
-        axes[i].axvspan(
-            -0.5 + len(input_tokens), 0.5 + len(input_tokens), color="gray", alpha=0.3
-        )
-        # axes[i].bar(
-        #     index - 1.5 * bar_width,
-        #     prefill_latency[f'env{i}']['DeepSpeed-MII'],
-        #     bar_width * 0.8,
-        #     label='DeepSpeed-MII',
-        #     edgecolor="black",
-        # )
-        # axes[i].bar(
-        #     index - 0.5 * bar_width,
-        #     prefill_latency[f'env{i}']['Eliseev & Mazur'],
-        #     bar_width * 0.8,
-        #     label='Eliseev & Mazur',
-        #     edgecolor="black",
-        # )
-        axes[i].bar(
-            index - bar_width,
-            prefill_latency[f"env{i}"]["llama.cpp"],
-            bar_width * 0.8,
-            label="llama.cpp",
-            edgecolor="black",
-            hatch="//",
-        )
-        axes[i].bar(
-            index + bar_width,
-            prefill_latency[f"env{i}"][sys_name],
-            bar_width * 0.8,
-            label=sys_name,
-            edgecolor="black",
-            hatch="\\",
-        )
+    axes.axvspan(
+        -0.5 + len(input_tokens), 0.5 + len(input_tokens), color="gray", alpha=0.3
+    )
+    # axes.bar(
+    #     index - 1.5 * bar_width,
+    #     prefill_latency[f'env{i}']['DeepSpeed-MII'],
+    #     bar_width * 0.8,
+    #     label='DeepSpeed-MII',
+    #     edgecolor="black",
+    # )
+    # axes.bar(
+    #     index - 0.5 * bar_width,
+    #     prefill_latency[f'env{i}']['Eliseev & Mazur'],
+    #     bar_width * 0.8,
+    #     label='Eliseev & Mazur',
+    #     edgecolor="black",
+    # )
+    i=0
+    axes.bar(
+        index - bar_width,
+        prefill_latency[f"env{i}"]["llama.cpp"],
+        bar_width * 0.8,
+        label="llama.cpp",
+        edgecolor="black",
+        hatch="//",
+    )
+    axes.bar(
+        index + bar_width,
+        prefill_latency[f"env{i}"][sys_name],
+        bar_width * 0.8,
+        label=sys_name,
+        edgecolor="black",
+        hatch="\\",
+    )
 
-        # write a vertical line
-        # axes[i].axvline(x=3 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=6 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=9 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=12 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=15 - 0.5, color='black', linestyle='-')
+    # write a vertical line
+    # axes.axvline(x=3 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=6 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=9 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=12 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=15 - 0.5, color='black', linestyle='-')
 
-        axes[i].set_xlim(-0.5, len(input_tokens) + 0.5)
-        axes[i].grid(
-            which="major", axis="y", color="gray", linestyle="--", linewidth=1.0
-        )
-        # remove xticks label
-        axes[i].set_xticks(index)
-        axes[i].set_xticklabels(input_tokens + [mean_label], rotation=0)
-        axes[i].tick_params(axis="x", which="minor", length=0)
-        axes[i].tick_params(axis="x", which="major", length=0)
-        axes[i].set_xlabel("Beam Search Width", fontsize=12)
-        axes[i].set_ylabel("Inference Speed (token/s) ↑", fontsize=12)
+    axes.set_xlim(-0.5, len(input_tokens) + 0.5)
+    axes.grid(
+        which="major", axis="y", color="gray", linestyle="--", linewidth=1.0
+    )
+    # remove xticks label
+    axes.set_xticks(index)
+    axes.set_xticklabels(input_tokens + [mean_label], rotation=0)
+    axes.tick_params(axis="x", which="minor", length=0)
+    axes.tick_params(axis="x", which="major", length=0)
+    axes.set_xlabel("Beam Search Width", fontsize=12)
+    axes.set_ylabel("Inference Speed (token/s) ↑", fontsize=12)
 
-    axes[0].set_title("Environment 1 (Quadro RTX 6000 GPU)")
+    axes.set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
-    axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
+    # axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
 
     # set y-axis limit
-    axes[0].set_ylim(0, 1)
-    axes[1].set_ylim(0, 2)
+    axes.set_ylim(0, 1)
+    # axes[1].set_ylim(0, 2)
     # axes[2].set_ylim(0, 2)
 
-    # axes[0].set_ylabel("Inference Speed (token/s) ↑")
+    #axes.set_ylabel("Inference Speed (token/s) ↑")
 
     # Add legends
-    axes[0].legend(ncol=2, loc="upper left")
+    axes.legend(ncol=2, loc="upper left")
     # axes[2].legend()
 
     plt.tight_layout()
-    plt.savefig("/home/tian21/fiddler/asset/beam.png")
+    plt.savefig("fig/beam.png")
 
 
 def microbench():
@@ -619,9 +649,9 @@ def microbench():
         axes[i].tick_params(axis="x", which="major", length=0)
         # axes[i].set_xlabel('Input Length')
 
-    axes[0].set_title("Environment 1 (Quadro RTX 6000 GPU)")
+    axes[0].set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
-    axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
+    axes[1].set_title("Environment 2")
 
     axes[0].set_ylabel("Latency (s)")
 
@@ -639,11 +669,17 @@ def microbench():
 
 
 def e2e():
-    tokens_per_second, input_output_tokens = normal_e2e()
-    for dataset in tokens_per_second.keys():
+    total_speed_ups = []
+    for dataset in datasets[1:]:
+        tokens_per_second, input_output_tokens, mean_speed_ups = normal_e2e(dataset)
         plot_e2e(dataset, tokens_per_second, input_output_tokens, "./fig/")
+        total_speed_ups.extend(mean_speed_ups)
+    print("total average speed up", np.mean(total_speed_ups))
 
-e2e()
-long_context()
-beam()
-# microbench()
+if __name__ == "__main__":
+    # results = read_normal_results("rtx6000", "sharegpt", "twiddler")
+    # print(results)
+    e2e()
+    # long_context()
+    # beam()
+    # microbench()
