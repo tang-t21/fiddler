@@ -112,7 +112,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.get_cmap("Paired").colors)
 
     # Creating subplots
-    fig, axes = plt.subplots(2, 1, figsize=(15, 4))
+    fig, axes = plt.subplots(2, 1, figsize=(27, 6))
 
     # Plot data for Environment 1
     bar_width = 0.2
@@ -168,8 +168,8 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         axes[i].set_xticks([])
         axes[i].tick_params(axis="x", which="minor", length=0)
         axes[i].tick_params(axis="x", which="major", length=0)
-
-    fig.supxlabel("index in (input length,ouput length) list", fontsize=12)
+    font_size = 16
+    fig.supxlabel("[input length,ouput length]", fontsize=14)
     fig.text(
         0.01,
         0.5,
@@ -177,8 +177,8 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         va="center",
         ha="center",
         rotation="vertical",
-        fontsize=12,
-    )
+        fontsize=font_size,
+    ) 
 
     # Adjust layout to make room for the shared labels and avoid overlap
     # fig.tight_layout(rect=[-0.5, 0, 1, 1])
@@ -187,14 +187,14 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # axes[1].set_ylim(0, 4)
     axes[1].set_ylim(0, 2.5)
 
-    axes[0].set_title("Environment 1")
-    axes[1].set_title("Environment 2")
+    axes[0].set_title(f"Environment 1, {dataset}", fontsize=font_size)
+    axes[1].set_title(f"Environment 2, {dataset}", fontsize=font_size)
     # axes[2].set_title('Environment 3 (RTX 6000 Ada GPU)')
     axes[1].set_xticks(index)
-    axes[1].set_xticklabels([i for i in range(len(input_output_tokens))] + [mean_label], rotation=0)
+    axes[1].set_xticklabels(input_output_tokens + [mean_label], rotation=0)
 
     # Add legends
-    axes[0].legend(ncol=4)
+    axes[0].legend(ncol=4, fontsize=font_size)
     # axes[2].legend()
     # plt.ylabel("Inference Speed (token/s) ↑", fontsize=12)
     # plt.xlabel("[Input Length, Output Length]", fontsize=12)
@@ -271,7 +271,6 @@ def long_context():
     print(
         "total average speed up", np.mean(list(speed_ups[envs[0]] + speed_ups[envs[1]]))
     )
-
     # append each list with mean value
     print("long_context")
     for env in prefill_latency.keys():
@@ -351,7 +350,7 @@ def long_context():
     )
     # add text to environment 2 saying OOM in vertical
     # axes[1].text(2.9, 3, 'Out Of Memory', fontsize=10, color='red', ha='center', rotation=90)
-
+    
     axes[0].set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
     axes[1].set_title("Environment 2")
@@ -670,7 +669,7 @@ def microbench():
 
 def e2e():
     total_speed_ups = []
-    for dataset in datasets[1:]:
+    for dataset in datasets:
         tokens_per_second, input_output_tokens, mean_speed_ups = normal_e2e(dataset)
         plot_e2e(dataset, tokens_per_second, input_output_tokens, "./fig/")
         total_speed_ups.extend(mean_speed_ups)
