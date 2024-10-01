@@ -3,292 +3,116 @@ import numpy as np
 
 sys_name = "Twiddler"
 
+result_dir="/home/ubuntu/fiddler-Tian/benchmarks/results"
 
-def e2e():
+envs=["rtx6000", "A6000"]
+datasets=["sharegpt","lmsys"]
+
+def read_normal_results(env, dataset, framework):
+    throughputs = []
+    with open(f"{result_dir}/latency-{env}-{dataset}-{framework}.txt", "r") as f:
+        for line in f[1:]:
+            if int(line.split(",")[1]) <= 1024 and int(line.split(",")[0]) <= 1024:
+                throughputs.append(float(line.split(",")[-1]))
+    return throughputs
+
+
+def read_long_results(env, dataset, framework):
+    throughputs = []
+    with open(f"{result_dir}/latency-{env}-{dataset}-{framework}.txt", "r") as f:
+        for line in f[1:]:
+            if int(line.split(",")[1]) > 512 or int(line.split(",")[0]) >= 512:
+                throughputs.append(float(line.split(",")[-1]))
+    return throughputs
+
+def read_refill_results(env, dataset, framework):
+    latency = []
+    with open(f"{result_dir}/prefill-{env}-{dataset}-{framework}.txt", "r") as f:
+        for line in f[1:]:
+            latency.append(float(line.split(",")[-2]))
+    return latency
+
+
+def normal_e2e():
     # Sample data (replace with your actual data)
     input_output_tokens = [
         "[32,64]",
         "[32,128]",
-        "[32,256]",  # '[32,512]',
+        "[32,256]", 
+        '[32,512]',
+        "[32,1024]",
         "[64,64]",
         "[64,128]",
-        "[64,256]",  # '[64,512]',
+        "[64,256]",  
+        '[64,512]',
+        "[64,1024]",
         "[128,64]",
         "[128,128]",
-        "[128,256]",  # '[128,512]',
+        "[128,256]",  
+        '[128,512]',
+        "[128,1024]",
         "[256,64]",
         "[256,128]",
-        "[256,256]",  # '[256,512]',
+        "[256,256]",  
+        '[256,512]',
+        "[256,1024]",
         "[512,64]",
         "[512,128]",
-        "[512,256]",  # '[512,512]',
+        "[512,256]",  
+        '[512,512]',
+        "[512,1024]",
+        "[1024,64]",
+        "[1024,128]",
+        "[1024,256]",
+        '[1024,512]',
+        "[1024,1024]",
     ]
     n_bar = len(input_output_tokens)
-
-    mean_label = "Mean"
     tokens_per_second = {
+        "sharegpt":{
         "env0": {
-            # This is fake data
-            "DeepSpeed-MII": [
-                0.12,
-                0.13,
-                0.13,
-                # 0.13,
-                0.12,
-                0.13,
-                0.13,
-                # 0.13,
-                0.13,
-                0.13,
-                0.13,
-                # 0.13,
-                0.13,
-                0.13,
-                0.13,
-                # 0.13,
-                0.13,
-                0.13,
-                0.13,
-                # 0.13,
-            ],
-            "Eliseev & Mazur": [
-                0.31,
-                0.31,
-                0.32,
-                # 0.32,
-                0.31,
-                0.32,
-                0.32,
-                # 0.32,
-                0.31,
-                0.32,
-                0.32,
-                # 0.32,
-                0.32,
-                0.32,
-                0.32,
-                # 0.32,
-                0.32,
-                0.32,
-                0.32,
-                # 0.32,
-            ],
-            "llama.cpp": [
-                1.34,
-                1.38,
-                1.70,
-                # 4.37,
-                2.02,
-                2.22,
-                2.34,
-                # 3.36,
-                1.41,
-                1.20,
-                1.36,
-                # 1.95,
-                1.33,
-                1.45,
-                1.45,
-                # 4.14,
-                1.29,
-                2.04,
-                2.35,
-                # 2.31,
-            ],
-            sys_name: [
-                2.16,
-                2.40,
-                2.54,
-                # 2.65,
-                2.19,
-                2.42,
-                2.60,
-                # 2.61,
-                2.12,
-                2.46,
-                2.63,
-                # 2.73,
-                2.15,
-                2.46,
-                2.64,
-                # 2.72,
-                1.69,
-                2.20,
-                2.59,
-                # 2.64,
-            ],
+            "DeepSpeed-MII": read_normal_results(envs[0],datasets[0], "deepspeed-mii"),
+            "Eliseev & Mazur": read_normal_results(envs[0], datasets[0], "mixtral-offload"),
+            "llama.cpp": read_normal_results(envs[0],datasets[0], "llamacpp"),
+            sys_name: read_normal_results(envs[0],datasets[0], "twiddler"),
         },
-        # "env1": {
-        #     # This is fake data
-        #     'DeepSpeed-MII': [
-        #         0.11,
-        #         0.12,
-        #         0.11,
-        #         # 0.12,
-        #         0.12,
-        #         0.12,
-        #         0.12,
-        #         # 0.11,
-        #         0.11,
-        #         0.12,
-        #         0.12,
-        #         # 0.12,
-        #         0.12,
-        #         0.11,
-        #         0.11,
-        #         # 0.12,
-        #         0.13,
-        #         0.12,
-        #         0.12,
-        #         # 0.13,
-        #     ],
-        #     'Eliseev & Mazur': [
-        #         0.44,
-        #         0.46,
-        #         0.46,
-        #         # 0.46,
-        #         0.45,
-        #         0.44,
-        #         0.44,
-        #         # 0.45,
-        #         0.44,
-        #         0.44,
-        #         0.44,
-        #         # 0.44,
-        #         0.44,
-        #         0.44,
-        #         0.44,
-        #         # 0.44,
-        #         0.44,
-        #         0.44,
-        #         0.44,
-        #         # 0.44,
-        #     ],
-        #     'llama.cpp': [0.0 for _ in range(n_bar)],
-        #     sys_name: [
-        #         3.19,
-        #         3.13,
-        #         3.39,
-        #         # 3.31,
-        #         3.13,
-        #         3.12,
-        #         3.41,
-        #         # 3.46,
-        #         3.22,
-        #         3.31,
-        #         3.37,
-        #         # 3.46,
-        #         3.18,
-        #         3.34,
-        #         3.43,
-        #         # 3.44,
-        #         3.17,
-        #         3.16,
-        #         3.34,
-        #         # 3.37,
-        #     ],
-        # },
         "env1": {
-            "DeepSpeed-MII": [
-                0.26,
-                0.26,
-                0.26,
-                # 0.26,
-                0.26,
-                0.26,
-                0.26,
-                # 0.26,
-                0.26,
-                0.26,
-                0.26,
-                # 0.26,
-                0.26,
-                0.26,
-                0.26,
-                # 0.26,
-                0.26,
-                0.26,
-                0.26,
-                # 0.26,
-            ],
-            "Eliseev & Mazur": [
-                0.93,
-                0.98,
-                0.97,
-                # 1.01,
-                0.93,
-                0.98,
-                1.01,
-                # 1.01,
-                0.92,
-                0.92,
-                0.97,
-                # 0.98,
-                0.95,
-                1.02,
-                1.01,
-                # 1.02,
-                0.94,
-                0.96,
-                1.00,
-                # 0.98,
-            ],
-            "llama.cpp": [
-                5.51,
-                7.06,
-                7.05,
-                # 6.79,
-                5.40,
-                5.47,
-                6.21,
-                # 6.30,
-                5.03,
-                6.16,
-                7.18,
-                # 11.29,
-                5.69,
-                6.04,
-                6.48,
-                # 6.48,
-                5.49,
-                6.38,
-                5.12,
-                # 6.69,
-            ],
-            sys_name: [
-                7.27,
-                8.23,
-                8.27,
-                # 4.26,
-                6.97,
-                7.84,
-                6.08,
-                # 3.98,
-                6.79,
-                7.61,
-                7.09,
-                # 5.99,
-                6.60,
-                7.57,
-                6.36,
-                # 5.66,
-                6.90,
-                7.77,
-                8.37,
-                # 3.80,
-            ],
+            # This is fake data
+            'DeepSpeed-MII': read_normal_results(envs[1],datasets[0], "deepspeed-mii"),
+            'Eliseev & Mazur': read_normal_results(envs[1], datasets[0], "mixtral-offload"),
+            'llama.cpp': read_normal_results(envs[1],datasets[0], "llamacpp"),
+            sys_name: read_normal_results(envs[1],datasets[0], "twiddler"),
         },
+        },
+        "lmsys":{
+             "env0": {
+            "DeepSpeed-MII": read_normal_results(envs[0],datasets[1], "deepspeed-mii"),
+            "Eliseev & Mazur": read_normal_results(envs[0], datasets[1], "mixtral-offload"),
+            "llama.cpp": read_normal_results(envs[0],datasets[1], "llamacpp"),
+            sys_name: read_normal_results(envs[0],datasets[1], "twiddler"),
+            },
+            "env1": {
+            # This is fake data
+            'DeepSpeed-MII': read_normal_results(envs[1],datasets[1], "deepspeed-mii"),
+            'Eliseev & Mazur': read_normal_results(envs[1], datasets[1], "mixtral-offload"),
+            'llama.cpp': read_normal_results(envs[1],datasets[1], "llamacpp"),
+            sys_name: read_normal_results(envs[1],datasets[1], "twiddler"),
+            }
+        }
     }
+    return tokens_per_second, input_output_tokens
 
+def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # append each list with mean value
-    print("e2e")
-    for env in tokens_per_second.keys():
+    print(f"e2e of {dataset}")
+    tokens_per_second=tokens_per_second[dataset]
+    for env in tokens_per_second[dataset].keys():
         for key in tokens_per_second[env].keys():
             tokens_per_second[env][key].append(np.mean(tokens_per_second[env][key]))
             print(
-                "env:", env, "key:", key, "mean:", np.mean(tokens_per_second[env][key])
+                "dataset:", dataset, "env:", env, "key:", key, "mean:", np.mean(tokens_per_second[env][key])
             )
-
+    mean_label = "Mean"
     plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.get_cmap("Paired").colors)
 
     # Creating subplots
@@ -371,7 +195,7 @@ def e2e():
     axes[1].set_ylim(0, 9)
 
     axes[0].set_title("Environment 1 (Quadro RTX 6000 GPU)")
-    axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
+    axes[1].set_title("Environment 2 (RTX A6000 GPU)")
     # axes[2].set_title('Environment 3 (RTX 6000 Ada GPU)')
     axes[1].set_xticks(index)
     axes[1].set_xticklabels(input_output_tokens + [mean_label], rotation=0)
@@ -383,7 +207,7 @@ def e2e():
     # plt.xlabel("[Input Length, Output Length]", fontsize=12)
 
     plt.tight_layout(rect=[0.02, 0, 1, 1])
-    plt.savefig("/home/tian21/fiddler/asset/e2e.png")
+    plt.savefig(f"{output_dir}/e2e-{dataset}.png")
 
 
 def long_context():
@@ -393,83 +217,22 @@ def long_context():
         "1024",
         "2048",
         "4096",
+        "8192"
     ]
 
     mean_label = "Mean"
     prefill_latency = {
         "env0": {
-            "DeepSpeed-MII": [
-                9.42,
-                10.66,
-                13.13,
-                18.23,
-            ],
-            "Eliseev & Mazur": [
-                12.87,
-                13.09,
-                13.55,
-                14.83,
-            ],
-            "llama.cpp": [
-                6.15,
-                12.37,
-                24.71,
-                49.76,
-            ],
-            sys_name: [
-                7.95,
-                9.33,
-                12.25,
-                18.46,
-                # 35.28,
-            ],
+            "DeepSpeed-MII": read_refill_results(envs[0],datasets[0], "deepspeed-mii"),
+            "Eliseev & Mazur": read_refill_results(envs[0], datasets[0], "mixtral-offload"),
+            "llama.cpp": read_refill_results(envs[0],datasets[0], "llamacpp"),
+            sys_name: read_refill_results(envs[0],datasets[0], "twiddler"),
         },
-        # "env1": {
-        #     'DeepSpeed-MII': [
-        #         8.24,
-        #         8.34,
-        #         8.65,
-        #         9.41,
-        #     ],
-        #     'Eliseev & Mazur': [
-        #         5.28,
-        #         5.46,
-        #         5.87,
-        #         0.0,
-        #     ],
-        #     'llama.cpp': [0.0, 0.0, 0.0, 0.0],
-        #     sys_name: [
-        #         1.881,
-        #         2.207,
-        #         3.06,
-        #         9.11,
-        #     ],
-        # },
         "env1": {
-            "DeepSpeed-MII": [
-                4.06,
-                3.95,
-                4.16,
-                4.37,
-            ],
-            "Eliseev & Mazur": [
-                4.66,
-                4.72,
-                4.95,
-                5.64,
-            ],
-            "llama.cpp": [
-                2.228,
-                4.454,
-                8.979,
-                18.221,
-            ],
-            sys_name: [
-                2.107295195261637,
-                2.0762025515238443,
-                2.193204482396444,
-                2.5070451895395913,
-            ],
+            "DeepSpeed-MII": read_refill_results(envs[1],datasets[0], "deepspeed-mii"),
+            "Eliseev & Mazur": read_refill_results(envs[1], datasets[0], "mixtral-offload"),
+            "llama.cpp":  read_refill_results(envs[1],datasets[0], "llamacpp"),
+            sys_name: read_refill_results(envs[1],datasets[0], "twiddler"),
         },
     }
 
@@ -607,17 +370,6 @@ def beam():
                 0.29,
             ],
         },
-        # "env1": {
-        #     # This is fake data
-        #     'llama.cpp': [0.0, 0.0, 0.0, 0.0],
-        #     sys_name: [
-        #         # 3.21,
-        #         1.12,
-        #         0.68,
-        #         0.68,
-        #         0.66,
-        #     ],
-        # },
         "env1": {
             "llama.cpp": [
                 # 7.11,
@@ -885,6 +637,11 @@ def microbench():
     plt.tight_layout()
     plt.savefig("/home/tian21/fiddler/asset/microbench.png")
 
+
+def e2e():
+    tokens_per_second, input_output_tokens = normal_e2e()
+    for dataset in tokens_per_second.keys():
+        plot_e2e(dataset, tokens_per_second, input_output_tokens, "./fig/")
 
 e2e()
 long_context()
