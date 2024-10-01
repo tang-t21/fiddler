@@ -46,7 +46,7 @@ if __name__ == "__main__":
     #     # the input of the first round
     #     texts.append(" ".join(d["conversation"][0]["content"].split()))
     
-    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
+    path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
     dataset_name="ShareGPT"
     with open(path_json, "r") as f:
         data = json.load(f)
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     file_name = f"./results/prefill-long-latency-{dataset_name}-{args.torch_threads}-{args.cpp_threads}.txt"
     with open(file_name, "a") as f:
         f.write("input_length,prefill_time(s),throughput(token/s)\n")
-    for input_token in [4096]:
+    for input_token in [4096,8192]:
         idx_text = 0
         input_text = None
         for text in texts:

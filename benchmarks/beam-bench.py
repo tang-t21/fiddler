@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
+    path_json = "/home/ubuntu/ShareGPT_V3_unfiltered_cleaned_split.json"
     with open(path_json, "r") as f:
         data = json.load(f)
 
