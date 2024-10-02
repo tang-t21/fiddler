@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-
+import os
 sys_name = "Twiddler"
 
 result_dir="/home/ubuntu/fiddler-Tian/benchmarks/results"
@@ -12,7 +12,7 @@ def read_normal_results(env, dataset, framework):
     throughputs = []
     with open(f"{result_dir}/latency-{env}-{dataset}-{framework}.txt", "r") as f:
         for line in f.readlines()[1:]:
-            if int(line.split(",")[1]) <= 1024 and int(line.split(",")[0]) <= 1024:
+            if int(line.split(",")[1]) <= 256 and int(line.split(",")[0]) <= 512:
                 throughputs.append(float(line.split(",")[-1]))
     return throughputs
 
@@ -39,33 +39,19 @@ def normal_e2e(dataset):
         "[32,64]",
         "[32,128]",
         "[32,256]", 
-        '[32,512]',
-        "[32,1024]",
         "[64,64]",
         "[64,128]",
         "[64,256]",  
-        '[64,512]',
-        "[64,1024]",
         "[128,64]",
         "[128,128]",
         "[128,256]",  
-        '[128,512]',
-        "[128,1024]",
         "[256,64]",
         "[256,128]",
-        "[256,256]",  
-        '[256,512]',
-        "[256,1024]",
+        "[256,256]",   
         "[512,64]",
         "[512,128]",
         "[512,256]",  
-        '[512,512]',
-        "[512,1024]",
-        "[1024,64]",
-        "[1024,128]",
-        "[1024,256]",
-        '[1024,512]',
-        "[1024,1024]",
+        
     ]
     tokens_per_second = {
         envs[0]: {
@@ -106,13 +92,13 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         for key in tokens_per_second[env].keys():
             tokens_per_second[env][key].append(np.mean([t for t in tokens_per_second[env][key] if t != 0]))
             print(
-                "dataset:", dataset, "env:", env, "key:", key, "mean:", np.mean(tokens_per_second[env][key])
+                "dataset:", env, "key:", key, "mean:", np.mean(tokens_per_second[env][key])
             )
     mean_label = "Mean"
     plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.get_cmap("Paired").colors)
 
     # Creating subplots
-    fig, axes = plt.subplots(2, 1, figsize=(27, 6))
+    fig, axes = plt.subplots(2, 1, figsize=(15, 5))
 
     # Plot data for Environment 1
     bar_width = 0.2
@@ -127,21 +113,21 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         )
         axes[i].bar(
             index - 1.5 * bar_width,
-            tokens_per_second[envs[i]]["DeepSpeed-MII"],
+            tokens_per_second[datasets[i]]["DeepSpeed-MII"],
             bar_width * 0.8,
             label="DeepSpeed-MII",
             edgecolor="black",
         )
         axes[i].bar(
             index - 0.5 * bar_width,
-            tokens_per_second[envs[i]]["Eliseev & Mazur"],
+            tokens_per_second[datasets[i]]["Eliseev & Mazur"],
             bar_width * 0.8,
             label="Eliseev & Mazur",
             edgecolor="black",
         )
         axes[i].bar(
             index + 0.5 * bar_width,
-            tokens_per_second[envs[i]]["llama.cpp"],
+            tokens_per_second[datasets[i]]["llama.cpp"],
             bar_width * 0.8,
             label="llama.cpp",
             edgecolor="black",
@@ -149,7 +135,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
         )
         axes[i].bar(
             index + 1.5 * bar_width,
-            tokens_per_second[envs[i]][sys_name],
+            tokens_per_second[datasets[i]][sys_name],
             bar_width * 0.8,
             label=sys_name,
             edgecolor="black",
@@ -158,7 +144,7 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
 
         # write a vertical line
         for j in range(6):
-            axes[i].axvline(x=j * 5 - 0.5, color="black", linestyle="-")
+            axes[i].axvline(x=j * 3 - 0.5, color="black", linestyle="-")
 
         axes[i].set_xlim(-0.5, len(input_output_tokens) + 0.5)
         axes[i].grid(
@@ -183,12 +169,12 @@ def plot_e2e(dataset, tokens_per_second, input_output_tokens, output_dir):
     # Adjust layout to make room for the shared labels and avoid overlap
     # fig.tight_layout(rect=[-0.5, 0, 1, 1])
     # set y-axis limit
-    axes[0].set_ylim(0, 4)
-    # axes[1].set_ylim(0, 4)
-    axes[1].set_ylim(0, 2.5)
+    axes[0].set_ylim(0, 5)
+    axes[1].set_ylim(0, 4)
+    # axes[1].set_ylim(0, 2.5)
 
-    axes[0].set_title(f"Environment 1, {dataset}", fontsize=font_size)
-    axes[1].set_title(f"Environment 2, {dataset}", fontsize=font_size)
+    axes[0].set_title(f"ShareGPT", fontsize=16)
+    axes[1].set_title(f"LMSYS-1M-Chat", fontsize=16)
     # axes[2].set_title('Environment 3 (RTX 6000 Ada GPU)')
     axes[1].set_xticks(index)
     axes[1].set_xticklabels(input_output_tokens + [mean_label], rotation=0)
@@ -210,7 +196,6 @@ def long_context():
         "1024",
         "2048",
         "4096",
-        "8192",
     ]
 
     mean_label = "Mean"
@@ -221,28 +206,27 @@ def long_context():
                 10.66,
                 13.13,
                 18.23,
-                0,
+
             ],
             "Eliseev & Mazur": [
                 12.87,
                 13.09,
                 13.55,
                 14.83,
-                0,
+
             ],
             "llama.cpp": [
                 6.15,
                 12.37,
                 24.71,
                 49.76,
-                0,
+
             ],
             sys_name: [
                 7.95,
                 9.33,
                 12.25,
                 18.46,
-                0
             ],
         },
         envs[1]: {
@@ -281,62 +265,62 @@ def long_context():
     plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.get_cmap("Paired").colors)
 
     # Creating subplots
-    fig, axes = plt.subplots(2, 1, figsize=(10, 4.5))
+    fig, axes = plt.subplots(1, 1, figsize=(10, 4.5))
 
     # Plot data for Environment 1
     bar_width = 0.2
     index = np.arange(len(input_tokens) + 1)  # Adding one for the mean column
-    for i in range(2):
-        axes[i].axvspan(
-            -0.5 + len(input_tokens), 0.5 + len(input_tokens), color="gray", alpha=0.3
-        )
-        axes[i].bar(
-            index - 1.5 * bar_width,
-            prefill_latency[envs[i]]["DeepSpeed-MII"],
-            bar_width * 0.8,
-            label="DeepSpeed-MII",
-            edgecolor="black",
-        )
-        axes[i].bar(
-            index - 0.5 * bar_width,
-            prefill_latency[envs[i]]["Eliseev & Mazur"],
-            bar_width * 0.8,
-            label="Eliseev & Mazur",
-            edgecolor="black",
-        )
-        axes[i].bar(
-            index + 0.5 * bar_width,
-            prefill_latency[envs[i]]["llama.cpp"],
-            bar_width * 0.8,
-            label="llama.cpp",
-            edgecolor="black",
-            hatch="//",
-        )
-        axes[i].bar(
-            index + 1.5 * bar_width,
-            prefill_latency[envs[i]][sys_name],
-            bar_width * 0.8,
-            label=sys_name,
-            edgecolor="black",
-            hatch="\\",
-        )
+    i = 0
+    axes.axvspan(
+        -0.5 + len(input_tokens), 0.5 + len(input_tokens), color="gray", alpha=0.3
+    )
+    axes.bar(
+        index - 1.5 * bar_width,
+        prefill_latency[envs[i]]["DeepSpeed-MII"],
+        bar_width * 0.8,
+        label="DeepSpeed-MII",
+        edgecolor="black",
+    )
+    axes.bar(
+        index - 0.5 * bar_width,
+        prefill_latency[envs[i]]["Eliseev & Mazur"],
+        bar_width * 0.8,
+        label="Eliseev & Mazur",
+        edgecolor="black",
+    )
+    axes.bar(
+        index + 0.5 * bar_width,
+        prefill_latency[envs[i]]["llama.cpp"],
+        bar_width * 0.8,
+        label="llama.cpp",
+        edgecolor="black",
+        hatch="//",
+    )
+    axes.bar(
+        index + 1.5 * bar_width,
+        prefill_latency[envs[i]][sys_name],
+        bar_width * 0.8,
+        label=sys_name,
+        edgecolor="black",
+        hatch="\\",
+    )
 
-        # write a vertical line
-        # axes[i].axvline(x=3 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=6 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=9 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=12 - 0.5, color='black', linestyle='-')
-        # axes[i].axvline(x=15 - 0.5, color='black', linestyle='-')
+    # write a vertical line
+    # axes.axvline(x=3 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=6 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=9 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=12 - 0.5, color='black', linestyle='-')
+    # axes.axvline(x=15 - 0.5, color='black', linestyle='-')
 
-        axes[i].set_xlim(-0.5, len(input_tokens) + 0.5)
-        axes[i].grid(
-            which="major", axis="y", color="gray", linestyle="--", linewidth=1.0
-        )
-        # remove xticks label
-        axes[i].set_xticks(index)
-        axes[i].set_xticklabels(input_tokens + [mean_label], rotation=0)
-        axes[i].tick_params(axis="x", which="minor", length=0)
-        axes[i].tick_params(axis="x", which="major", length=0)
+    axes.set_xlim(-0.5, len(input_tokens) + 0.5)
+    axes.grid(
+        which="major", axis="y", color="gray", linestyle="--", linewidth=1.0
+    )
+    # remove xticks label
+    axes.set_xticks(index)
+    axes.set_xticklabels(input_tokens + [mean_label], rotation=0)
+    axes.tick_params(axis="x", which="minor", length=0)
+    axes.tick_params(axis="x", which="major", length=0)
         # axes[i].set_ylabel("Time To First Token (s) ↓", fontsize=12)
     fig.supxlabel("Input Length", fontsize=12)
     fig.text(
@@ -351,19 +335,19 @@ def long_context():
     # add text to environment 2 saying OOM in vertical
     # axes[1].text(2.9, 3, 'Out Of Memory', fontsize=10, color='red', ha='center', rotation=90)
     
-    axes[0].set_title("Environment 1")
+    # axes.set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
-    axes[1].set_title("Environment 2")
+    # axes[1].set_title("Environment 2")
 
     # axes[0].set_ylabel("Time To First Token (s) ↓")
 
     # set y-axis limit
-    axes[0].set_ylim(0, 60)
+    axes.set_ylim(0, 60)
     # axes[1].set_ylim(0, 40)
-    axes[1].set_ylim(0, 20)
+    # axes[1].set_ylim(0, 20)
 
     # Add legends
-    axes[0].legend(ncol=1, loc="upper left")
+    axes.legend(ncol=1, loc="upper left")
     # axes[2].legend()
 
     plt.tight_layout()
@@ -496,7 +480,7 @@ def beam():
     axes.set_xlabel("Beam Search Width", fontsize=12)
     axes.set_ylabel("Inference Speed (token/s) ↑", fontsize=12)
 
-    axes.set_title("Environment 1")
+    # axes.set_title("Environment 1")
     # axes[1].set_title('Environment 2 (L4 GPU)')
     # axes[1].set_title("Environment 2 (RTX 6000 Ada GPU)")
 
@@ -669,14 +653,17 @@ def microbench():
 
 def e2e():
     total_speed_ups = []
+    tokens_per_second_env0 = {}
     for dataset in datasets:
         tokens_per_second, input_output_tokens, mean_speed_ups = normal_e2e(dataset)
-        plot_e2e(dataset, tokens_per_second, input_output_tokens, "./fig/")
-        total_speed_ups.extend(mean_speed_ups)
+        tokens_per_second_env0[dataset]=tokens_per_second[envs[0]]
+    plot_e2e(dataset, tokens_per_second_env0, input_output_tokens, "./fig/")
+    total_speed_ups.extend(mean_speed_ups)
     print("total average speed up", np.mean(total_speed_ups))
 
 if __name__ == "__main__":
-    # results = read_normal_results("rtx6000", "sharegpt", "twiddler")
+    if not os.path.exists("./fig"):
+        os.makedirs("./fig")
     # print(results)
     e2e()
     # long_context()
