@@ -32,31 +32,32 @@ if __name__ == "__main__":
     parser.add_argument("--beam_width", type=int, default=1, help="Beam search width.")
     parser.add_argument("--torch_threads", type=int, default=16, help="Torch threads.")
     parser.add_argument("--cpp_threads", type=int, default=44, help="C++ threads.")
-
+    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument("--dataset", type=str, choices=["LMSYS", "ShareGPT"],required=True)
     args = parser.parse_args()
 
-    # path_json = "./lmsys_chat.jsonl"
-    # with open(path_json, "r") as f:
-    #     data = [json.loads(line)["conversation"][0]["content"] for line in f]
-    # dataset_name="LMSYS"
-    # texts = []
-    # for d in data:
-    #     if len(d) == 0:
-    #         continue
-    #     # the input of the first round
-    #     texts.append(" ".join(d.split()))
-    
-    path_json = "./ShareGPT_V3_unfiltered_cleaned_split.json"
-    dataset_name="ShareGPT"
-    with open(path_json, "r") as f:
-        data = json.load(f)
-
-    texts = []
-    for d in data:
-        if len(d["conversations"]) == 0:
-            continue
-        # the input of the first round
-        texts.append(" ".join(d["conversations"][0]["value"].split()))
+    path_json = args.data_path
+    dataset_name=args.dataset
+    texts=[]
+    if dataset_name == "LMSYS":
+        with open(path_json, "r") as f:
+            data = [json.loads(line)["conversation"][0]["content"] for line in f]
+        dataset_name="LMSYS"
+        for d in data:
+            if len(d) == 0:
+                continue
+            # the input of the first round
+            texts.append(" ".join(d.split()))
+    elif dataset_name == "ShareGPT":
+        with open(path_json, "r") as f:
+            data = json.load(f)
+        for d in data:
+            if len(d["conversations"]) == 0:
+                continue
+            # the input of the first round
+            texts.append(" ".join(d["conversations"][0]["value"].split()))
+    else:
+        raise ValueError("UNSUPPORTED DATASET!")
 
     random.seed(0)
     random.shuffle(texts)
@@ -88,7 +89,7 @@ if __name__ == "__main__":
                 )
     if not os.path.exists('./results/'):
         os.makedirs('./results/')
-    file_name = f"./results/latency-{dataset_name}-{args.torch_threads}-{args.cpp_threads}.txt"
+    file_name = f"./results/latency-{dataset_name}.txt"
     with open(file_name, "a") as f:
         f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
     for input_token in [32,64,128,256,512,1024,2048]:
@@ -102,7 +103,7 @@ if __name__ == "__main__":
         if input_text is None:
             print(f"No enough input length for length larger than {input_token}")
             break
-        for output_token in [64,128,256,512,1024,2048,4096]:
+        for output_token in [64,128,256,512,1024]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
             n_sample = 3 if output_token < 1024 else 1
@@ -133,25 +134,25 @@ if __name__ == "__main__":
                 # print(
                 #     f"CPU Layer Num: | {sum(model.cpu_layer_num)/len(model.cpu_layer_num):.2f} | {np.var(model.cpu_layer_num):.2f}"
                 # )
-                print(
-                    f"OneToken | {sum(model.one_token_time)/len(model.one_token_time):.2f} ms | {np.var(model.one_token_time):.2f} ms"
-                )
-                print("         | Average value | Variation | Portion")
-                print(
-                    f"CPUExpert | {sum(model.cpu_expert_time)/len(model.cpu_expert_time):.2f} | {np.var(model.cpu_expert_time):.2f} | {sum(model.cpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
-                )
-                print(
-                    f"GPUExpert | {sum(model.gpu_expert_time)/len(model.gpu_expert_time):.2f} | {np.var(model.gpu_expert_time):.2f} | {sum(model.gpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
-                )
-                print(
-                    f"Attention | {sum(model.attention_time)/len(model.attention_time):.2f} | {np.var(model.attention_time):.2f} | {sum(model.attention_time)/(decode_time+prefill_time)/10**6:.2f}"
-                )
+                # print(
+                #     f"OneToken | {sum(model.one_token_time)/len(model.one_token_time):.2f} ms | {np.var(model.one_token_time):.2f} ms"
+                # )
+                # print("         | Average value | Variation | Portion")
+                # print(
+                #     f"CPUExpert | {sum(model.cpu_expert_time)/len(model.cpu_expert_time):.2f} | {np.var(model.cpu_expert_time):.2f} | {sum(model.cpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
+                # )
+                # print(
+                #     f"GPUExpert | {sum(model.gpu_expert_time)/len(model.gpu_expert_time):.2f} | {np.var(model.gpu_expert_time):.2f} | {sum(model.gpu_expert_time)/(decode_time+prefill_time)/10**6:.2f}"
+                # )
+                # print(
+                #     f"Attention | {sum(model.attention_time)/len(model.attention_time):.2f} | {np.var(model.attention_time):.2f} | {sum(model.attention_time)/(decode_time+prefill_time)/10**6:.2f}"
+                # )
                 # print(
                 #     f"Selection | {sum(model.selection_time)/len(model.selection_time):.2f} | {np.var(model.selection_time):.2f} | {sum(model.selection_time)/(decode_time+prefill_time)/10**6:.2f}"
                 # )
-                print(
-                    f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time):.2f} | {np.var(model.search_config_time):.2f} | {sum(model.search_config_time)/(decode_time+prefill_time)/10**6:.2f}"
-                )
+                # print(
+                #     f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time):.2f} | {np.var(model.search_config_time):.2f} | {sum(model.search_config_time)/(decode_time+prefill_time)/10**6:.2f}"
+                # )
 
                 prefill_time_sum += prefill_time
                 decode_time_sum += decode_time
