@@ -4,6 +4,7 @@ import os
 # import utils
 import random
 from mixtral import FiddlerMixtral
+from phi import FiddlerPhi
 import torch
 import time
 import numpy as np
@@ -93,20 +94,22 @@ if __name__ == "__main__":
     parser.add_argument("--repeat", type=int, default=1, help="Repeat times.")
 
     args = parser.parse_args()
-    model = FiddlerMixtral(args)
-    print((len(args.input.split()) + args.n_token))
-    model.reset_expert_loc((len(args.input.split()) + args.n_token))
+    model = FiddlerPhi(args)
+    # print((len(args.input.split()) + args.n_token))
+    # model.reset_expert_loc((len(args.input.split()) + args.n_token))
     num_threads = [2 * i + 8 for i in range(9)]
+    print("Model device:", model.device)
+    # exit()
     for i in range(args.repeat):
         prefill_time, decode_time, hit_rate = model.generate(
-            texts=[args.input], output_token=args.n_token
+            texts=[args.input], output_token=args.n_token, verbose=True
         )
         # prefill_time, decode_time, hit_rate = model.generate(
         #     texts=[args.input], output_token=args.n_token
         # )
         # print(model.cpu_token_num)
         print(
-            f"prefill_time: {prefill_time}, decode_time: {decode_time}, hit_rate: {hit_rate}"
+            f"prefill_time: {prefill_time}, decode_time: {decode_time}"
         )
     # print("         | Average value | Variation | Portion")
     # print(
