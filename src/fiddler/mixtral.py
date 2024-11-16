@@ -65,7 +65,7 @@ class FiddlerMixtral:
         # self.init_cpu_expert()
         # self.test_cpu_expert()
         # self.test_cpu_expert()
-        self.gpu_latency = np.mean(self.expert_gpu(n_expert=1, batch_size=4)) * 10**3
+        self.gpu_latency = np.mean(self.expert_gpu(n_expert=1, batch_size=1)) * 10**3
         self.copy_latency = np.mean(self.weight_copy()) * 10**3
         self.cpu_latency = np.mean(self.expert_cpu(1, 1)) * 10**3
         # self.gpu_latency = 0.46
@@ -823,8 +823,8 @@ class FiddlerMixtral:
             inps = inps_residual + inps
             inps_residual = inps
             inps = layer.post_attention_layernorm(inps)
-            torch.cuda.synchronize()
-            self.attention_time.append((time.time() - start_time) * 10**6)
+            # torch.cuda.synchronize()
+            # self.attention_time.append((time.time() - start_time) * 10**6)
             inps = inps.view(-1, hidden_dim)
             # start_time = time.time()
             # print(f"Attention time:{(time.time()-start_time)*10**3}")
@@ -894,6 +894,7 @@ class FiddlerMixtral:
 
             else:
                 # prefill stage with offloading
+                torch.cuda.synchronize()
                 start_time = time.time()
                 expert_mask = torch.nn.functional.one_hot(
                     selected_experts, num_classes=8
@@ -967,10 +968,10 @@ class FiddlerMixtral:
                         current_state.to(self.dev, non_blocking=True),
                     )
                 # torch.cuda.synchronize()
-                if use_gpu:
-                    self.gpu_expert_time.append(
-                        (time.time() - start_time) * 10**6 / gpu_token_num
-                    )
+                # if use_gpu:
+                #     self.gpu_expert_time.append(
+                #         (time.time() - start_time) * 10**6 / gpu_token_num
+                #     )
 
                 use_cpu = False
                 cpu_start = time.time()
@@ -994,9 +995,9 @@ class FiddlerMixtral:
                         top_2s[i_expert].to(self.dev, non_blocking=True),
                         current_state.to(self.dev, non_blocking=True),
                     )
-                torch.cuda.synchronize()
-                if use_cpu:
-                    cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
+                # torch.cuda.synchronize()
+                # if use_cpu:
+                #     cpu_time = (time.time() - cpu_start) * 10**6 / cpu_token_num
                     # if cpu_time > 10000:
                     #     # print(
                     #     #     f"Layer {i_layer} CPU time: {cpu_time:.2f} us, token num: {cpu_token_num}"
@@ -1005,7 +1006,7 @@ class FiddlerMixtral:
                     #     outliner_num += 1
                     #     outliners.append(cpu_time * cpu_token_num)
                     #     # exit(0)
-                    self.cpu_expert_time.append(cpu_time)
+                    # self.cpu_expert_time.append(cpu_time)
                 # if use_cpu:
                 #     cpu_layer_num += 1
                 # expert_time = time.time() - start_time
