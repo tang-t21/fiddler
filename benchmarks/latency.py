@@ -8,7 +8,7 @@ import sys
 import numpy as np
 
 sys.path.append("../src")
-from fiddler import FiddlerMixtral
+from fiddler import FiddlerPhi
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -61,14 +61,14 @@ if __name__ == "__main__":
 
     random.seed(0)
     random.shuffle(texts)
-    model = FiddlerMixtral(args)
+    model = FiddlerPhi(args)
     n_sample = 3
     for input_token in [16]:
         for output_token in [64]:
             idx_text = 0
             prefill_time_sum, decode_time_sum, hit_rate_sum = 0, 0, 0
             print(f"input_token: {input_token}, output_token: {output_token}")
-            model.reset_expert_loc((output_token+input_token))
+            # model.reset_expert_loc((output_token+input_token))
             for _ in range(2):
                 idx_text = 0
                 while True:
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     file_name = f"./results/latency-{dataset_name}.txt"
     with open(file_name, "a") as f:
         f.write("input_length,output_length,prefill_time(s),decode_time(s),throughput(token/s)\n")
-    for input_token in [32,64,128,256,512,1024,2048]:
+    for input_token in [32, 64, 128, 256, 512]:
         idx_text = 0
         input_text = None
         for text in texts:
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         if input_text is None:
             print(f"No enough input length for length larger than {input_token}")
             break
-        for output_token in [64,128,256,512,1024]:
+        for output_token in [64, 128, 256]:
     # for input_token in [32]:
     #     for output_token in [128, 256, 512]:
             n_sample = 3 if output_token < 1024 else 1
@@ -150,10 +150,7 @@ if __name__ == "__main__":
                 # print(
                 #     f"Selection | {sum(model.selection_time)/len(model.selection_time):.2f} | {np.var(model.selection_time):.2f} | {sum(model.selection_time)/(decode_time+prefill_time)/10**6:.2f}"
                 # )
-                # print(
-                #     f"Optconfig | {sum(model.search_config_time)/len(model.search_config_time):.2f} | {np.var(model.search_config_time):.2f} | {sum(model.search_config_time)/(decode_time+prefill_time)/10**6:.2f}"
-                # )
-
+              
                 prefill_time_sum += prefill_time
                 decode_time_sum += decode_time
                 hit_rate_sum += hit_rate
