@@ -98,7 +98,7 @@ if __name__ == "__main__":
     # print((len(args.input.split()) + args.n_token))
     # model.reset_expert_loc((len(args.input.split()) + args.n_token))
     num_threads = [2 * i + 8 for i in range(9)]
-    print("Model device:", model.device)
+
     # exit()
     for i in range(args.repeat):
         prefill_time, decode_time, hit_rate = model.generate(
